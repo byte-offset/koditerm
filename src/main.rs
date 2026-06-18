@@ -215,6 +215,10 @@ fn handle_key_search(app: &mut App, key: KeyEvent) -> Option<String> {
             app.input_mode = InputMode::Normal;
             play_selected(app)
         }
+        KeyCode::F(5) => {
+            // Queue without leaving search
+            queue_selected(app)
+        }
         KeyCode::Backspace => {
             app.pop_search_char();
             None
@@ -316,6 +320,7 @@ fn handle_key_normal(app: &mut App, key: KeyEvent) -> Option<String> {
             None
         }
         KeyCode::Enter => play_selected(app),
+        KeyCode::Char('a') => queue_selected(app),
         KeyCode::Char(' ') => {
             if let Some(pid) = app.status.player_id {
                 Some(format!("toggle_pause:{pid}"))
@@ -362,6 +367,14 @@ fn play_selected(app: &App) -> Option<String> {
     }
 }
 
+fn queue_selected(app: &App) -> Option<String> {
+    match app.selected_item()? {
+        app::LibraryItem::Artist(a) => Some(format!("queue_artist:{}", a.artistid)),
+        app::LibraryItem::Album(a) => Some(format!("queue_album:{}", a.albumid)),
+        app::LibraryItem::Song(s) => Some(format!("queue_song:{}", s.songid)),
+    }
+}
+
 async fn dispatch_action(
     kodi: &KodiClient,
     action: &str,
@@ -372,6 +385,9 @@ async fn dispatch_action(
         "play_song" => kodi.play_song(parts[1].parse()?).await?,
         "play_album" => kodi.play_album(parts[1].parse()?).await?,
         "play_artist" => kodi.play_artist(parts[1].parse()?).await?,
+        "queue_song" => kodi.queue_song(parts[1].parse()?).await?,
+        "queue_album" => kodi.queue_album(parts[1].parse()?).await?,
+        "queue_artist" => kodi.queue_artist(parts[1].parse()?).await?,
         "toggle_pause" => kodi.toggle_pause(parts[1].parse()?).await?,
         "stop" => kodi.stop(parts[1].parse()?).await?,
         "next" => kodi.next_track(parts[1].parse()?).await?,

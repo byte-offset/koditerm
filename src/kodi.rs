@@ -170,30 +170,60 @@ impl KodiClient {
         Ok(songs)
     }
 
-    pub async fn play_song(&self, song_id: u32) -> Result<()> {
+    pub async fn playlist_clear(&self) -> Result<()> {
+        self.call("Playlist.Clear", json!({ "playlistid": 0 }))
+            .await?;
+        Ok(())
+    }
+
+    pub async fn queue_song(&self, song_id: u32) -> Result<()> {
         self.call(
-            "Player.Open",
-            json!({ "item": { "songid": song_id } }),
+            "Playlist.Add",
+            json!({ "playlistid": 0, "item": { "songid": song_id } }),
         )
         .await?;
+        Ok(())
+    }
+
+    pub async fn queue_album(&self, album_id: u32) -> Result<()> {
+        self.call(
+            "Playlist.Add",
+            json!({ "playlistid": 0, "item": { "albumid": album_id } }),
+        )
+        .await?;
+        Ok(())
+    }
+
+    pub async fn queue_artist(&self, artist_id: u32) -> Result<()> {
+        self.call(
+            "Playlist.Add",
+            json!({ "playlistid": 0, "item": { "artistid": artist_id } }),
+        )
+        .await?;
+        Ok(())
+    }
+
+    pub async fn play_song(&self, song_id: u32) -> Result<()> {
+        self.playlist_clear().await?;
+        self.queue_song(song_id).await?;
+        self.call("Player.Open", json!({ "item": { "playlistid": 0 } }))
+            .await?;
         Ok(())
     }
 
     pub async fn play_album(&self, album_id: u32) -> Result<()> {
-        self.call(
-            "Player.Open",
-            json!({ "item": { "albumid": album_id } }),
-        )
-        .await?;
+        self.playlist_clear().await?;
+        self.queue_album(album_id).await?;
+        self.call("Player.Open", json!({ "item": { "playlistid": 0 } }))
+            .await?;
         Ok(())
     }
 
     pub async fn play_artist(&self, artist_id: u32) -> Result<()> {
-        self.call(
-            "Player.Open",
-            json!({ "item": { "artistid": artist_id } }),
-        )
-        .await?;
+        self.playlist_clear().await?;
+        self.queue_artist(artist_id).await?;
+        self.call("Player.Open", json!({ "item": { "playlistid": 0 } }))
+            .await?;
         Ok(())
     }
 
