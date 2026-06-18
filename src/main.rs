@@ -752,12 +752,31 @@ fn handle_key_normal(app: &mut App, key: KeyEvent) -> Option<String> {
                 app.status.player_id.map(|pid| format!("stop:{pid}"))
             }
         }
+        KeyCode::Char('+') | KeyCode::Char('=') if key.modifiers.contains(KeyModifiers::ALT) => {
+            if app.backend == PlaybackBackend::Local {
+                let vol = (app.local_volume + 1).min(100);
+                Some(format!("local_volume:{vol}"))
+            } else {
+                let vol = (app.status.volume + 1).min(100);
+                Some(format!("volume:{vol}"))
+            }
+        }
+
         KeyCode::Char('+') | KeyCode::Char('=') => {
             if app.backend == PlaybackBackend::Local {
                 let vol = (app.local_volume + 5).min(100);
                 Some(format!("local_volume:{vol}"))
             } else {
                 let vol = (app.status.volume + 5).min(100);
+                Some(format!("volume:{vol}"))
+            }
+        }
+        KeyCode::Char('-') if key.modifiers.contains(KeyModifiers::ALT) => {
+            if app.backend == PlaybackBackend::Local {
+                let vol = app.local_volume.saturating_sub(1);
+                Some(format!("local_volume:{vol}"))
+            } else {
+                let vol = app.status.volume.saturating_sub(1);
                 Some(format!("volume:{vol}"))
             }
         }

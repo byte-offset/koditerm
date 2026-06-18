@@ -499,6 +499,8 @@ fn draw_help(f: &mut Frame, area: Rect) {
                 ("r",        "Cycle repeat: off / ↻1 track / ↻ queue"),
                 ("+  /  =",  "Volume up 5%"),
                 ("-",        "Volume down 5%"),
+                ("Alt+=",    "Volume up 1%"),
+                ("Alt+-",    "Volume down 1%"),
             ],
         ),
         (
