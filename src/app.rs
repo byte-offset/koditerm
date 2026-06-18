@@ -8,6 +8,13 @@ pub enum PlaybackBackend {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RepeatMode {
+    Off,
+    Track,
+    Queue,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SearchScope {
     All,
     Artists,
@@ -107,6 +114,7 @@ pub struct App {
     pub local_volume: u32,
     pub local_position: u32,
     pub pending_count: String,
+    pub repeat_mode: RepeatMode,
 }
 
 impl App {
@@ -143,7 +151,16 @@ impl App {
             local_volume: 100,
             local_position: 0,
             pending_count: String::new(),
+            repeat_mode: RepeatMode::Off,
         }
+    }
+
+    pub fn cycle_repeat(&mut self) {
+        self.repeat_mode = match self.repeat_mode {
+            RepeatMode::Off => RepeatMode::Track,
+            RepeatMode::Track => RepeatMode::Queue,
+            RepeatMode::Queue => RepeatMode::Off,
+        };
     }
 
     pub fn toggle_backend(&mut self) {

@@ -40,6 +40,7 @@ pub struct PlayerStatus {
     pub volume: u32,
     pub muted: bool,
     pub playlist_pos: usize,
+    pub repeat: String,
 }
 
 #[derive(Debug, Clone)]
@@ -62,6 +63,7 @@ impl Default for PlayerStatus {
             volume: 100,
             muted: false,
             playlist_pos: 0,
+            repeat: "off".to_string(),
         }
     }
 }
@@ -257,6 +259,12 @@ impl KodiClient {
         Ok(())
     }
 
+    pub async fn set_repeat(&self, player_id: i64, repeat: &str) -> Result<()> {
+        self.call("Player.SetRepeat", json!({ "playerid": player_id, "repeat": repeat }))
+            .await?;
+        Ok(())
+    }
+
     pub async fn next_track(&self, player_id: i64) -> Result<()> {
         self.call(
             "Player.GoTo",
@@ -384,13 +392,14 @@ impl KodiClient {
                     "Player.GetProperties",
                     json!({
                         "playerid": pid,
-                        "properties": ["speed", "time", "totaltime", "position"]
+                        "properties": ["speed", "time", "totaltime", "position", "repeat"]
                     }),
                 )
                 .await?;
 
             let speed = props["speed"].as_i64().unwrap_or(0);
             let playlist_pos = props["position"].as_u64().unwrap_or(0) as usize;
+            let repeat = props["repeat"].as_str().unwrap_or("off").to_string();
             let pos_secs = time_to_seconds(&props["time"]);
             let dur_secs = time_to_seconds(&props["totaltime"]);
 
@@ -429,6 +438,7 @@ impl KodiClient {
                 volume,
                 muted,
                 playlist_pos,
+                repeat,
             })
         } else {
             Ok(PlayerStatus {
@@ -441,6 +451,7 @@ impl KodiClient {
                 volume,
                 muted,
                 playlist_pos: 0,
+                repeat: "off".to_string(),
             })
         }
     }

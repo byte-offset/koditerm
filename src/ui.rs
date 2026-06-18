@@ -6,7 +6,7 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::{App, InputMode, LibraryItem, PlaybackBackend, SearchMode, SearchScope};
+use crate::app::{App, InputMode, LibraryItem, PlaybackBackend, RepeatMode, SearchMode, SearchScope};
 use crate::kodi::format_duration;
 
 pub fn draw(f: &mut Frame, app: &mut App) {
@@ -37,11 +37,26 @@ fn draw_now_playing(f: &mut Frame, app: &App, area: Rect) {
     } else {
         Span::styled(" REMOTE ", Style::default().fg(Color::DarkGray))
     };
+    let repeat_style = Style::default().fg(Color::Gray);
+    let repeat_span = if app.backend == PlaybackBackend::Local {
+        match app.repeat_mode {
+            RepeatMode::Off => Span::raw(""),
+            RepeatMode::Track => Span::styled(" ↻1", repeat_style),
+            RepeatMode::Queue => Span::styled(" ↻", repeat_style),
+        }
+    } else {
+        match app.status.repeat.as_str() {
+            "one" => Span::styled(" ↻1", repeat_style),
+            "all" => Span::styled(" ↻", repeat_style),
+            _ => Span::raw(""),
+        }
+    };
     let block = Block::default()
         .borders(Borders::ALL)
         .title(Line::from(vec![
             Span::styled(" Now Playing ", Style::default().fg(Color::Cyan)),
             backend_span,
+            repeat_span,
         ]));
 
     let inner = block.inner(area);
@@ -399,7 +414,7 @@ fn draw_search_bar(f: &mut Frame, app: &App, area: Rect) {
             (
                 " koditerm ".to_string(),
                 msg,
-                " /search  j/k nav  gg/G top/bot  Enter play  Space pause  n/p skip  +/- vol  q quit ".to_string(),
+                " /search  j/k nav  gg/G top/bot  Enter play  Space pause  n/p skip  r repeat  +/- vol  q quit ".to_string(),
             )
         }
         InputMode::Command => (
@@ -481,6 +496,7 @@ fn draw_help(f: &mut Frame, area: Rect) {
                 ("s",        "Stop"),
                 ("n",        "Next track"),
                 ("p",        "Previous track"),
+                ("r",        "Cycle repeat: off / ↻1 track / ↻ queue"),
                 ("+  /  =",  "Volume up 5%"),
                 ("-",        "Volume down 5%"),
             ],

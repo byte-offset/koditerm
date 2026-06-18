@@ -5,7 +5,7 @@ mod player;
 mod ui;
 
 use anyhow::Result;
-use app::{App, InputMode, PlaybackBackend, SearchScope};
+use app::{App, InputMode, PlaybackBackend, RepeatMode, SearchScope};
 use clap::Parser;
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers},
@@ -201,19 +201,32 @@ async fn main() -> Result<()> {
                             if app.backend == PlaybackBackend::Local {
                                 app.local_paused = lp.is_paused();
                                 app.local_position = lp.position();
-                                if lp.empty() && !app.local_fetching {
-                                    let next_pos = app.local_queue_pos + 1;
-                                    if app.local_current_song.is_some() && next_pos < app.local_queue.len() {
-                                        app.local_queue_pos = next_pos;
-                                        let s = app.local_queue[next_pos].clone();
-                                        app.local_current_song = Some(s.clone());
-                                        app.local_fetching = true;
-                                        Some(s)
-                                    } else {
-                                        if app.local_current_song.is_some() {
-                                            app.local_current_song = None;
+                                if lp.empty() && !app.local_fetching && app.local_current_song.is_some() {
+                                    match app.repeat_mode {
+                                        RepeatMode::Track => {
+                                            let s = app.local_queue[app.local_queue_pos].clone();
+                                            app.local_fetching = true;
+                                            Some(s)
                                         }
-                                        None
+                                        _ => {
+                                            let next_pos = app.local_queue_pos + 1;
+                                            if next_pos < app.local_queue.len() {
+                                                app.local_queue_pos = next_pos;
+                                                let s = app.local_queue[next_pos].clone();
+                                                app.local_current_song = Some(s.clone());
+                                                app.local_fetching = true;
+                                                Some(s)
+                                            } else if app.repeat_mode == RepeatMode::Queue && !app.local_queue.is_empty() {
+                                                app.local_queue_pos = 0;
+                                                let s = app.local_queue[0].clone();
+                                                app.local_current_song = Some(s.clone());
+                                                app.local_fetching = true;
+                                                Some(s)
+                                            } else {
+                                                app.local_current_song = None;
+                                                None
+                                            }
+                                        }
                                     }
                                 } else {
                                     None
@@ -450,6 +463,31 @@ async fn main() -> Result<()> {
                                     Err(e) => { let _ = tx.send(AppEvent::Error(format!("Fetch songs: {e}"))); }
                                 }
                             });
+                        } else if a == "toggle_repeat" {
+                            let (backend, pid, current_repeat) = {
+                                let app = app.lock().unwrap();
+                                (app.backend.clone(), app.status.player_id, app.status.repeat.clone())
+                            };
+                            if backend == PlaybackBackend::Local {
+                                app.lock().unwrap().cycle_repeat();
+                            } else if let Some(pid) = pid {
+                                let next = match current_repeat.as_str() {
+                                    "off" => "one",
+                                    "one" => "all",
+                                    _ => "off",
+                                };
+                                let kodi = Arc::clone(&kodi_ref);
+                                let tx = tx.clone();
+                                tokio::spawn(async move {
+                                    if let Err(e) = kodi.set_repeat(pid, next).await {
+                                        let _ = tx.send(AppEvent::Error(format!("Set repeat: {e}")));
+                                    }
+                                    tokio::time::sleep(Duration::from_millis(300)).await;
+                                    if let Ok(s) = kodi.get_status().await {
+                                        let _ = tx.send(AppEvent::StatusUpdate(s));
+                                    }
+                                });
+                            }
                         } else {
                             // Remote Kodi action
                             let kodi = {
@@ -748,6 +786,7 @@ fn handle_key_normal(app: &mut App, key: KeyEvent) -> Option<String> {
             app.set_scope(SearchScope::Songs);
             None
         }
+        KeyCode::Char('r') => Some("toggle_repeat".to_string()),
         _ => None,
     }
 }
