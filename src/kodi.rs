@@ -39,6 +39,7 @@ pub struct PlayerStatus {
     pub speed: i64,
     pub volume: u32,
     pub muted: bool,
+    pub playlist_pos: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -60,6 +61,7 @@ impl Default for PlayerStatus {
             speed: 0,
             volume: 100,
             muted: false,
+            playlist_pos: 0,
         }
     }
 }
@@ -276,6 +278,37 @@ impl KodiClient {
         Ok(())
     }
 
+    pub async fn get_playlist(&self) -> Result<Vec<Song>> {
+        #[derive(Deserialize)]
+        struct Item {
+            id: Option<u32>,
+            label: String,
+            #[serde(default)]
+            artist: Vec<String>,
+            #[serde(default)]
+            album: String,
+        }
+        let result = self
+            .call(
+                "Playlist.GetItems",
+                json!({ "playlistid": 0, "properties": ["artist", "album"] }),
+            )
+            .await?;
+        let items: Vec<Item> =
+            serde_json::from_value(result["items"].clone()).unwrap_or_default();
+        Ok(items
+            .into_iter()
+            .map(|it| Song {
+                songid: it.id.unwrap_or(0),
+                label: it.label,
+                artist: it.artist,
+                album: it.album,
+                track: None,
+                duration: None,
+            })
+            .collect())
+    }
+
     pub async fn get_song_file(&self, song_id: u32) -> Result<String> {
         let result = self
             .call(
@@ -345,6 +378,7 @@ impl KodiClient {
                 .await?;
 
             let speed = props["speed"].as_i64().unwrap_or(0);
+            let playlist_pos = props["position"].as_u64().unwrap_or(0) as usize;
             let pos_secs = time_to_seconds(&props["time"]);
             let dur_secs = time_to_seconds(&props["totaltime"]);
 
@@ -382,6 +416,7 @@ impl KodiClient {
                 speed,
                 volume,
                 muted,
+                playlist_pos,
             })
         } else {
             Ok(PlayerStatus {
@@ -393,6 +428,7 @@ impl KodiClient {
                 speed: 0,
                 volume,
                 muted,
+                playlist_pos: 0,
             })
         }
     }

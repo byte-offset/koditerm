@@ -134,6 +134,16 @@ fn draw_now_playing(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn draw_main(f: &mut Frame, app: &mut App, area: Rect) {
+    let panes = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Min(0), Constraint::Length(34)])
+        .split(area);
+
+    draw_library(f, app, panes[0]);
+    draw_queue(f, app, panes[1]);
+}
+
+fn draw_library(f: &mut Frame, app: &mut App, area: Rect) {
     let scope_labels = [
         (SearchScope::All, "All [F1]"),
         (SearchScope::Artists, "Artists [F2]"),
@@ -246,6 +256,66 @@ fn draw_main(f: &mut Frame, app: &mut App, area: Rect) {
 
     let list = List::new(items);
     f.render_widget(list, inner);
+}
+
+fn draw_queue(f: &mut Frame, app: &App, area: Rect) {
+    let (queue, current_pos, has_current) = if app.backend == PlaybackBackend::Local {
+        (&app.local_queue, app.local_queue_pos, app.local_current_song.is_some())
+    } else {
+        (&app.remote_queue, app.status.playlist_pos, app.status.player_id.is_some())
+    };
+
+    let title = if queue.is_empty() {
+        Span::styled(" Queue ", Style::default().fg(Color::DarkGray))
+    } else {
+        let pos = if has_current { current_pos + 1 } else { 0 };
+        Span::styled(
+            format!(" Queue {}/{} ", pos, queue.len()),
+            Style::default().fg(Color::Yellow),
+        )
+    };
+    let block = Block::default().borders(Borders::ALL).title(title);
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    if queue.is_empty() {
+        f.render_widget(
+            Paragraph::new("Empty\n\nAdd songs\nwith 'a'")
+                .style(Style::default().fg(Color::DarkGray))
+                .alignment(Alignment::Center),
+            inner,
+        );
+        return;
+    }
+
+    let visible = inner.height as usize;
+    let offset = current_pos
+        .saturating_sub(visible / 2)
+        .min(queue.len().saturating_sub(visible));
+
+    let max_label = inner.width.saturating_sub(3) as usize;
+    let items: Vec<ListItem> = queue
+        .iter()
+        .enumerate()
+        .skip(offset)
+        .take(visible)
+        .map(|(i, song)| {
+            let playing = has_current && i == current_pos;
+            let (prefix, style) = if playing {
+                ("▶ ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+            } else {
+                ("  ", Style::default().fg(Color::White))
+            };
+            let label = if song.label.len() > max_label {
+                format!("{prefix}{}…", &song.label[..max_label.saturating_sub(1)])
+            } else {
+                format!("{prefix}{}", song.label)
+            };
+            ListItem::new(Span::styled(label, style))
+        })
+        .collect();
+
+    f.render_widget(List::new(items), inner);
 }
 
 fn draw_search_bar(f: &mut Frame, app: &App, area: Rect) {

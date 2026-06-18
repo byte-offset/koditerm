@@ -36,6 +36,7 @@ enum AppEvent {
     AlbumsLoaded(Vec<kodi::Album>),
     SongsLoaded(Vec<kodi::Song>),
     StatusUpdate(kodi::PlayerStatus),
+    RemoteQueueUpdate(Vec<kodi::Song>),
     LocalBytesReady { bytes: Vec<u8>, song: kodi::Song, clear: bool },
     Error(String),
 }
@@ -96,13 +97,18 @@ async fn main() -> Result<()> {
         }
     });
 
-    // Periodic status polling
+    // Periodic status + playlist polling
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(2));
         loop {
             interval.tick().await;
-            if let Ok(s) = kodi_ref2.get_status().await {
+            let (status, queue) =
+                tokio::join!(kodi_ref2.get_status(), kodi_ref2.get_playlist());
+            if let Ok(s) = status {
                 let _ = tx_status.send(AppEvent::StatusUpdate(s));
+            }
+            if let Ok(q) = queue {
+                let _ = tx_status.send(AppEvent::RemoteQueueUpdate(q));
             }
         }
     });
@@ -156,6 +162,10 @@ async fn main() -> Result<()> {
                     let mut app = app.lock().unwrap();
                     app.status = s;
                 }
+                Ok(AppEvent::RemoteQueueUpdate(q)) => {
+                    let mut app = app.lock().unwrap();
+                    app.remote_queue = q;
+                }
                 Ok(AppEvent::Error(e)) => {
                     let mut app = app.lock().unwrap();
                     app.status_message = Some(e);
@@ -163,12 +173,40 @@ async fn main() -> Result<()> {
                 }
                 Ok(AppEvent::Tick) => {
                     if let Some(ref lp) = local_player {
-                        let mut app = app.lock().unwrap();
-                        if app.backend == PlaybackBackend::Local {
-                            app.local_paused = lp.is_paused();
-                            if lp.empty() {
-                                app.local_current_song = None;
+                        let next = {
+                            let mut app = app.lock().unwrap();
+                            if app.backend == PlaybackBackend::Local {
+                                app.local_paused = lp.is_paused();
+                                if lp.empty() && !app.local_fetching {
+                                    let next_pos = app.local_queue_pos + 1;
+                                    if app.local_current_song.is_some() && next_pos < app.local_queue.len() {
+                                        app.local_queue_pos = next_pos;
+                                        let s = app.local_queue[next_pos].clone();
+                                        app.local_current_song = Some(s.clone());
+                                        app.local_fetching = true;
+                                        Some(s)
+                                    } else {
+                                        if app.local_current_song.is_some() {
+                                            app.local_current_song = None;
+                                        }
+                                        None
+                                    }
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
                             }
+                        };
+                        if let Some(song) = next {
+                            let kodi = Arc::clone(&kodi_ref);
+                            let tx = tx.clone();
+                            tokio::spawn(async move {
+                                match fetch_local_bytes(&kodi, song.songid).await {
+                                    Ok(bytes) => { let _ = tx.send(AppEvent::LocalBytesReady { bytes, song, clear: true }); }
+                                    Err(e) => { let _ = tx.send(AppEvent::Error(format!("Auto-advance: {e}"))); }
+                                }
+                            });
                         }
                     }
                 }
@@ -176,11 +214,16 @@ async fn main() -> Result<()> {
                     if let Some(ref mut lp) = local_player {
                         let result = if clear { lp.play_bytes(bytes) } else { lp.queue_bytes(bytes) };
                         let mut app = app.lock().unwrap();
+                        app.local_fetching = false;
                         match result {
                             Ok(()) => {
                                 if clear {
                                     app.local_current_song = Some(song);
                                     app.local_paused = false;
+                                } else if app.local_current_song.is_none() {
+                                    // First song queued — mark it as playing
+                                    app.local_current_song = app.local_queue.first().cloned();
+                                    app.local_queue_pos = 0;
                                 }
                                 app.status_message = None;
                             }
@@ -236,24 +279,47 @@ async fn main() -> Result<()> {
                                 }
                             }
                             app.lock().unwrap().local_current_song = None;
-                        } else if a.starts_with("local_play_song:") || a.starts_with("local_queue_song:") {
-                            let clear = a.starts_with("local_play_song:");
+                        } else if a.starts_with("local_play_song:") {
                             let id: u32 = a.splitn(2, ':').nth(1).unwrap_or("0").parse().unwrap_or(0);
                             let song = {
                                 let app = app.lock().unwrap();
                                 app.all_songs.iter().find(|s| s.songid == id).cloned()
                             };
                             if let Some(song) = song {
+                                {
+                                    let mut app = app.lock().unwrap();
+                                    app.clear_local_queue();
+                                    app.push_local_queue(song.clone());
+                                    app.local_queue_pos = 0;
+                                    app.local_fetching = true;
+                                }
                                 let kodi = Arc::clone(&kodi_ref);
                                 let tx = tx.clone();
                                 tokio::spawn(async move {
                                     match fetch_local_bytes(&kodi, song.songid).await {
-                                        Ok(bytes) => {
-                                            let _ = tx.send(AppEvent::LocalBytesReady { bytes, song, clear });
-                                        }
-                                        Err(e) => {
-                                            let _ = tx.send(AppEvent::Error(format!("Local fetch: {e}")));
-                                        }
+                                        Ok(bytes) => { let _ = tx.send(AppEvent::LocalBytesReady { bytes, song, clear: true }); }
+                                        Err(e) => { let _ = tx.send(AppEvent::Error(format!("Local fetch: {e}"))); }
+                                    }
+                                });
+                            }
+                        } else if a.starts_with("local_queue_song:") {
+                            let id: u32 = a.splitn(2, ':').nth(1).unwrap_or("0").parse().unwrap_or(0);
+                            let song = {
+                                let app = app.lock().unwrap();
+                                app.all_songs.iter().find(|s| s.songid == id).cloned()
+                            };
+                            if let Some(song) = song {
+                                {
+                                    let mut app = app.lock().unwrap();
+                                    app.push_local_queue(song.clone());
+                                    app.local_fetching = true;
+                                }
+                                let kodi = Arc::clone(&kodi_ref);
+                                let tx = tx.clone();
+                                tokio::spawn(async move {
+                                    match fetch_local_bytes(&kodi, song.songid).await {
+                                        Ok(bytes) => { let _ = tx.send(AppEvent::LocalBytesReady { bytes, song, clear: false }); }
+                                        Err(e) => { let _ = tx.send(AppEvent::Error(format!("Local fetch: {e}"))); }
                                     }
                                 });
                             }
@@ -272,8 +338,15 @@ async fn main() -> Result<()> {
                                 if let Err(e) = dispatch_action(&kodi, &a, &status).await {
                                     let _ = tx.send(AppEvent::Error(format!("Error: {e}")));
                                 }
-                                if let Ok(s) = kodi.get_status().await {
+                                // Give Kodi a moment to update its playlist
+                                tokio::time::sleep(Duration::from_millis(300)).await;
+                                let (s_res, q_res) =
+                                    tokio::join!(kodi.get_status(), kodi.get_playlist());
+                                if let Ok(s) = s_res {
                                     let _ = tx.send(AppEvent::StatusUpdate(s));
+                                }
+                                if let Ok(q) = q_res {
+                                    let _ = tx.send(AppEvent::RemoteQueueUpdate(q));
                                 }
                             });
                         }

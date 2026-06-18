@@ -98,8 +98,12 @@ pub struct App {
     pub pending_g: bool,
     pub show_help: bool,
     pub backend: PlaybackBackend,
+    pub remote_queue: Vec<Song>,
+    pub local_queue: Vec<Song>,
+    pub local_queue_pos: usize,
     pub local_current_song: Option<Song>,
     pub local_paused: bool,
+    pub local_fetching: bool,
 }
 
 impl App {
@@ -127,8 +131,12 @@ impl App {
             pending_g: false,
             show_help: false,
             backend: PlaybackBackend::Remote,
+            remote_queue: Vec::new(),
+            local_queue: Vec::new(),
+            local_queue_pos: 0,
             local_current_song: None,
             local_paused: false,
+            local_fetching: false,
         }
     }
 
@@ -137,6 +145,22 @@ impl App {
             PlaybackBackend::Remote => PlaybackBackend::Local,
             PlaybackBackend::Local => PlaybackBackend::Remote,
         };
+        self.selected = 0;
+        self.list_offset = 0;
+        self.apply_filter();
+    }
+
+    pub fn clear_local_queue(&mut self) {
+        self.local_queue.clear();
+        self.local_queue_pos = 0;
+        self.local_current_song = None;
+        self.local_fetching = false;
+        self.apply_filter();
+    }
+
+    pub fn push_local_queue(&mut self, song: Song) {
+        self.local_queue.push(song);
+        self.apply_filter();
     }
 
     pub fn set_artists(&mut self, artists: Vec<Artist>) {
