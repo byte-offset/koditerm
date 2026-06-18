@@ -105,6 +105,7 @@ pub struct App {
     pub local_paused: bool,
     pub local_fetching: bool,
     pub local_volume: u32,
+    pub local_position: u32,
 }
 
 impl App {
@@ -139,6 +140,7 @@ impl App {
             local_paused: false,
             local_fetching: false,
             local_volume: 100,
+            local_position: 0,
         }
     }
 
@@ -157,6 +159,7 @@ impl App {
         self.local_queue_pos = 0;
         self.local_current_song = None;
         self.local_fetching = false;
+        self.local_position = 0;
         self.apply_filter();
     }
 

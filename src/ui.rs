@@ -61,9 +61,38 @@ fn draw_now_playing(f: &mut Frame, app: &App, area: Rect) {
                 Span::styled(song.artist.join(", "), Style::default().fg(Color::Yellow)),
                 Span::raw("  —  "),
                 Span::styled(song.album.clone(), Style::default().fg(Color::DarkGray)),
-                Span::raw(format!("   {vol_icon}{:3}%", app.local_volume)),
             ]);
-            f.render_widget(Paragraph::new(title_line), inner);
+
+            let pos = app.local_position;
+            let dur = song.duration.unwrap_or(0);
+            let ratio = if dur > 0 { (pos as f64 / dur as f64).clamp(0.0, 1.0) } else { 0.0 };
+            let time_str = format!(
+                "{} / {}   {vol_icon}{:3}%",
+                format_duration(pos),
+                format_duration(dur),
+                app.local_volume,
+            );
+
+            let info_chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Length(1), Constraint::Length(1)])
+                .split(inner);
+
+            f.render_widget(Paragraph::new(title_line), info_chunks[0]);
+
+            let bar_chunks = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Min(0), Constraint::Length(22)])
+                .split(info_chunks[1]);
+
+            let gauge = Gauge::default()
+                .gauge_style(Style::default().fg(Color::Yellow).bg(Color::DarkGray))
+                .ratio(ratio);
+            f.render_widget(gauge, bar_chunks[0]);
+            f.render_widget(
+                Paragraph::new(time_str).alignment(Alignment::Right),
+                bar_chunks[1],
+            );
         } else {
             f.render_widget(
                 Paragraph::new("Local mode. Select a song and press Enter to play.")

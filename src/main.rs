@@ -27,6 +27,14 @@ struct Args {
     /// Name of the Kodi system to connect to
     #[arg(short, long)]
     system: Option<String>,
+
+    /// Audio output device name (partial match, e.g. "pipewire" or "hdmi")
+    #[arg(long)]
+    device: Option<String>,
+
+    /// List available audio output devices and exit
+    #[arg(long)]
+    list_devices: bool,
 }
 
 enum AppEvent {
@@ -44,6 +52,20 @@ enum AppEvent {
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
+
+    if args.list_devices {
+        let devices = player::list_devices();
+        if devices.is_empty() {
+            println!("No audio output devices found.");
+        } else {
+            for d in &devices {
+                println!("{d}");
+            }
+        }
+        return Ok(());
+    }
+
+    let device_name = args.device.clone();
     let cfg = config::load()?;
     let (name, system) = config::resolve(&cfg, args.system.as_deref())?;
     let kodi = KodiClient::new(name, system.clone())?;
@@ -177,6 +199,7 @@ async fn main() -> Result<()> {
                             let mut app = app.lock().unwrap();
                             if app.backend == PlaybackBackend::Local {
                                 app.local_paused = lp.is_paused();
+                                app.local_position = lp.position();
                                 if lp.empty() && !app.local_fetching {
                                     let next_pos = app.local_queue_pos + 1;
                                     if app.local_current_song.is_some() && next_pos < app.local_queue.len() {
@@ -221,6 +244,7 @@ async fn main() -> Result<()> {
                                 if clear {
                                     app.local_current_song = Some(song.clone());
                                     app.local_paused = false;
+                                    app.local_position = 0;
                                     app.status_message = Some(format!(
                                         "Playing locally: {} ({kb} KB)", song.label
                                     ));
@@ -255,7 +279,7 @@ async fn main() -> Result<()> {
                                 app.backend.clone()
                             };
                             if new_backend == PlaybackBackend::Local {
-                                match init_local_player() {
+                                match init_local_player(device_name.as_deref()) {
                                     Ok(lp) => {
                                         local_player = Some(lp);
                                         app.lock().unwrap().status_message =
@@ -284,10 +308,7 @@ async fn main() -> Result<()> {
                             }
                         } else if a == "local_stop" {
                             if let Some(ref mut lp) = local_player {
-                                if let Err(e) = lp.stop() {
-                                    app.lock().unwrap().status_message =
-                                        Some(format!("Stop error: {e}"));
-                                }
+                                lp.stop();
                             }
                             app.lock().unwrap().local_current_song = None;
                         } else if a.starts_with("local_play_song:") {
@@ -626,32 +647,8 @@ fn queue_selected(app: &App) -> Option<String> {
     }
 }
 
-fn init_local_player() -> anyhow::Result<player::LocalPlayer> {
-    // ALSA prints spurious "cannot find card" messages to stderr that bleed
-    // through the TUI. Redirect stderr to /dev/null for the duration of init.
-    #[cfg(unix)]
-    {
-        use std::ffi::c_char;
-        extern "C" {
-            fn dup(fd: i32) -> i32;
-            fn dup2(oldfd: i32, newfd: i32) -> i32;
-            fn open(path: *const c_char, oflag: i32) -> i32;
-            fn close(fd: i32) -> i32;
-        }
-        const O_WRONLY: i32 = 1;
-        unsafe {
-            let saved = dup(2);
-            let null = open(b"/dev/null\0".as_ptr() as *const c_char, O_WRONLY);
-            dup2(null, 2);
-            close(null);
-            let result = player::LocalPlayer::new();
-            dup2(saved, 2);
-            close(saved);
-            result
-        }
-    }
-    #[cfg(not(unix))]
-    player::LocalPlayer::new()
+fn init_local_player(device_name: Option<&str>) -> anyhow::Result<player::LocalPlayer> {
+    player::LocalPlayer::new(device_name)
 }
 
 async fn fetch_local_bytes(kodi: &kodi::KodiClient, song_id: u32) -> anyhow::Result<Vec<u8>> {
