@@ -277,88 +277,117 @@ fn draw_search_bar(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn draw_help(f: &mut Frame, area: Rect) {
-    const SECTIONS: &[(&str, &[(&str, &str)])] = &[
+    type Section = (&'static str, &'static [(&'static str, &'static str)]);
+
+    const LEFT: &[Section] = &[
         (
             "Navigation",
             &[
-                ("j / ↓",       "Move down"),
-                ("k / ↑",       "Move up"),
-                ("Ctrl+d",       "Half page down"),
-                ("Ctrl+u",       "Half page up"),
-                ("PgDn",         "Page down"),
-                ("PgUp",         "Page up"),
-                ("gg",           "Jump to top"),
-                ("G",            "Jump to bottom"),
+                ("j / ↓",    "Move down"),
+                ("k / ↑",    "Move up"),
+                ("Ctrl+d",   "Half page down"),
+                ("Ctrl+u",   "Half page up"),
+                ("PgDn",     "Page down"),
+                ("PgUp",     "Page up"),
+                ("gg",       "Jump to top"),
+                ("G",        "Jump to bottom"),
             ],
         ),
         (
             "Search & Scope",
             &[
-                ("/",            "New search"),
-                ("Tab",          "Toggle exact / fuzzy matching"),
-                ("Esc",          "Cancel search"),
-                ("F1",           "Scope: All"),
-                ("F2",           "Scope: Artists"),
-                ("F3",           "Scope: Albums"),
-                ("F4",           "Scope: Songs"),
-                ("Ctrl+n",       "Next scope"),
-                ("Ctrl+p",       "Previous scope"),
+                ("/",        "New search"),
+                ("Tab",      "Toggle fuzzy/exact"),
+                ("Esc",      "Cancel search"),
+                ("F1",       "Scope: All"),
+                ("F2",       "Scope: Artists"),
+                ("F3",       "Scope: Albums"),
+                ("F4",       "Scope: Songs"),
+                ("Ctrl+n",   "Next scope"),
+                ("Ctrl+p",   "Previous scope"),
             ],
         ),
+    ];
+
+    const RIGHT: &[Section] = &[
         (
             "Playback",
             &[
-                ("Enter",        "Play (clears queue)"),
-                ("a",            "Add to queue"),
-                ("F5",           "Add to queue (in search)"),
-                ("Space",        "Pause / resume"),
-                ("s",            "Stop"),
-                ("n",            "Next track"),
-                ("p",            "Previous track"),
-                ("+  /  =",      "Volume up 5%"),
-                ("-",            "Volume down 5%"),
+                ("Enter",    "Play (clears queue)"),
+                ("a",        "Add to queue"),
+                ("F5",       "Queue (from search)"),
+                ("Space",    "Pause / resume"),
+                ("s",        "Stop"),
+                ("n",        "Next track"),
+                ("p",        "Previous track"),
+                ("+  /  =",  "Volume up 5%"),
+                ("-",        "Volume down 5%"),
             ],
         ),
         (
             "General",
             &[
-                ("?",            "Toggle this help"),
-                ("q",            "Quit"),
+                ("?",        "Toggle this help"),
+                ("q",        "Quit"),
             ],
         ),
     ];
 
-    // Build lines
-    let key_style   = Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD);
-    let val_style   = Style::default().fg(Color::White);
-    let head_style  = Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD | Modifier::UNDERLINED);
+    let key_style  = Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD);
+    let val_style  = Style::default().fg(Color::White);
+    let head_style = Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD | Modifier::UNDERLINED);
 
-    let mut lines: Vec<Line> = vec![Line::from("")];
-    for (heading, bindings) in SECTIONS {
-        lines.push(Line::from(Span::styled(format!("  {heading}"), head_style)));
-        for (key, desc) in *bindings {
-            lines.push(Line::from(vec![
-                Span::styled(format!("  {key:<14}", key = key), key_style),
-                Span::styled(format!(" {desc}"), val_style),
-            ]));
+    let build_lines = |sections: &[Section]| -> Vec<Line<'static>> {
+        let mut lines: Vec<Line> = vec![Line::from("")];
+        for (heading, bindings) in sections {
+            lines.push(Line::from(Span::styled(format!("  {heading}"), head_style)));
+            for (key, desc) in *bindings {
+                lines.push(Line::from(vec![
+                    Span::styled(format!("  {key:<10}", key = key), key_style),
+                    Span::styled(format!(" {desc}"), val_style),
+                ]));
+            }
+            lines.push(Line::from(""));
         }
-        lines.push(Line::from(""));
-    }
+        lines
+    };
 
-    let content_h = lines.len() as u16 + 2; // +2 for block border
-    let content_w = 42u16;
+    let left_lines  = build_lines(LEFT);
+    let right_lines = build_lines(RIGHT);
 
-    let popup_area = center_rect(content_w, content_h, area);
+    // col_width = 2 indent + 10 key + 1 space + 19 desc + 1 padding = 33
+    let col_w: u16 = 33;
+    let popup_w = col_w * 2 + 3; // 3 = left border + divider + right border
+    let popup_h = left_lines.len().max(right_lines.len()) as u16 + 2;
 
+    let popup_area = center_rect(popup_w, popup_h, area);
     f.render_widget(Clear, popup_area);
     f.render_widget(
-        Paragraph::new(lines).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(Span::styled(" Help  (? to close) ", Style::default().fg(Color::Cyan))),
-        ),
+        Block::default()
+            .borders(Borders::ALL)
+            .title(Span::styled(" Help  (? to close) ", Style::default().fg(Color::Cyan))),
         popup_area,
     );
+
+    let inner = Rect {
+        x: popup_area.x + 1,
+        y: popup_area.y + 1,
+        width: popup_area.width.saturating_sub(2),
+        height: popup_area.height.saturating_sub(2),
+    };
+
+    let cols = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Length(col_w), Constraint::Length(1), Constraint::Min(0)])
+        .split(inner);
+
+    f.render_widget(Paragraph::new(left_lines), cols[0]);
+    // Vertical divider
+    f.render_widget(
+        Block::default().borders(Borders::LEFT),
+        Rect { x: cols[1].x, y: cols[1].y, width: 1, height: cols[1].height },
+    );
+    f.render_widget(Paragraph::new(right_lines), cols[2]);
 }
 
 fn center_rect(width: u16, height: u16, area: Rect) -> Rect {
