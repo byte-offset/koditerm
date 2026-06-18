@@ -5,7 +5,7 @@ mod ui;
 
 use anyhow::Result;
 use app::{App, InputMode, SearchScope};
-use config::Config;
+use clap::Parser;
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers},
     execute,
@@ -20,6 +20,14 @@ use std::{
 };
 use tokio::sync::mpsc;
 
+#[derive(Parser)]
+#[command(about = "Terminal UI for Kodi")]
+struct Args {
+    /// Name of the Kodi system to connect to
+    #[arg(short, long)]
+    system: Option<String>,
+}
+
 enum AppEvent {
     Key(KeyEvent),
     Tick,
@@ -32,8 +40,10 @@ enum AppEvent {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let config = Config::load()?;
-    let kodi = KodiClient::new(config)?;
+    let args = Args::parse();
+    let cfg = config::load()?;
+    let (name, system) = config::resolve(&cfg, args.system.as_deref())?;
+    let kodi = KodiClient::new(name, system.clone())?;
 
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -194,7 +204,7 @@ async fn main() -> Result<()> {
         DisableMouseCapture
     )?;
     terminal.show_cursor()?;
-    Ok(())
+    std::process::exit(0);
 }
 
 fn handle_key(app: &mut App, key: KeyEvent) -> Option<String> {

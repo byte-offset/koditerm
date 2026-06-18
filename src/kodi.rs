@@ -3,7 +3,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::config::Config;
+use crate::config::KodiSystem;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Artist {
@@ -66,17 +66,18 @@ impl Default for PlayerStatus {
 
 pub struct KodiClient {
     client: Client,
-    config: Config,
+    pub name: String,
+    system: KodiSystem,
 }
 
 impl KodiClient {
-    pub fn new(config: Config) -> Result<Self> {
+    pub fn new(name: &str, system: KodiSystem) -> Result<Self> {
         let client = Client::new();
-        Ok(KodiClient { client, config })
+        Ok(KodiClient { client, name: name.to_string(), system })
     }
 
     async fn call(&self, method: &str, params: Value) -> Result<Value> {
-        let url = format!("{}/jsonrpc", self.config.base_url());
+        let url = format!("{}/jsonrpc", self.system.base_url());
         let body = json!({
             "jsonrpc": "2.0",
             "id": 1,
@@ -86,7 +87,7 @@ impl KodiClient {
         let resp = self
             .client
             .post(&url)
-            .basic_auth(&self.config.kodi.username, Some(&self.config.kodi.password))
+            .basic_auth(&self.system.username, Some(&self.system.password))
             .json(&body)
             .send()
             .await?;
