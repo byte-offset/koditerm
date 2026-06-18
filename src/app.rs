@@ -2,6 +2,12 @@ use crate::kodi::{Album, Artist, KodiClient, PlayerStatus, Song};
 use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PlaybackBackend {
+    Remote,
+    Local,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SearchScope {
     All,
     Artists,
@@ -89,9 +95,11 @@ pub struct App {
     pub albums_loaded: bool,
     pub songs_loaded: bool,
     pub visible_rows: usize,
-    // For g/G double-key detection
     pub pending_g: bool,
     pub show_help: bool,
+    pub backend: PlaybackBackend,
+    pub local_current_song: Option<Song>,
+    pub local_paused: bool,
 }
 
 impl App {
@@ -118,7 +126,17 @@ impl App {
             visible_rows: 20,
             pending_g: false,
             show_help: false,
+            backend: PlaybackBackend::Remote,
+            local_current_song: None,
+            local_paused: false,
         }
+    }
+
+    pub fn toggle_backend(&mut self) {
+        self.backend = match self.backend {
+            PlaybackBackend::Remote => PlaybackBackend::Local,
+            PlaybackBackend::Local => PlaybackBackend::Remote,
+        };
     }
 
     pub fn set_artists(&mut self, artists: Vec<Artist>) {

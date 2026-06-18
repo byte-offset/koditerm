@@ -76,6 +76,12 @@ impl KodiClient {
         Ok(KodiClient { client, name: name.to_string(), system })
     }
 
+    async fn count(&self, method: &str, mut params: Value) -> Result<usize> {
+        params["limits"] = json!({ "start": 0, "end": 1 });
+        let result = self.call(method, params).await?;
+        Ok(result["limits"]["total"].as_u64().unwrap_or(0) as usize)
+    }
+
     async fn call(&self, method: &str, params: Value) -> Result<Value> {
         let url = format!("{}/jsonrpc", self.system.base_url());
         let body = json!({
@@ -99,46 +105,49 @@ impl KodiClient {
     }
 
     pub async fn get_artists(&self) -> Result<Vec<Artist>> {
+        let total = self.count("AudioLibrary.GetArtists", json!({})).await?;
         let result = self
             .call(
                 "AudioLibrary.GetArtists",
-                json!({ "limits": { "start": 0, "end": 5000 }, "sort": { "method": "artist" } }),
+                json!({
+                    "limits": { "start": 0, "end": total },
+                    "sort": { "method": "artist" }
+                }),
             )
             .await?;
-        let artists: Vec<Artist> =
-            serde_json::from_value(result["artists"].clone()).unwrap_or_default();
-        Ok(artists)
+        Ok(serde_json::from_value(result["artists"].clone()).unwrap_or_default())
     }
 
     pub async fn get_albums(&self) -> Result<Vec<Album>> {
+        let total = self.count("AudioLibrary.GetAlbums", json!({})).await?;
         let result = self
             .call(
                 "AudioLibrary.GetAlbums",
                 json!({
-                    "limits": { "start": 0, "end": 10000 },
+                    "limits": { "start": 0, "end": total },
                     "properties": ["artist", "year"],
                     "sort": { "method": "album" }
                 }),
             )
             .await?;
-        let albums: Vec<Album> =
-            serde_json::from_value(result["albums"].clone()).unwrap_or_default();
-        Ok(albums)
+        Ok(serde_json::from_value(result["albums"].clone()).unwrap_or_default())
     }
 
     pub async fn get_songs(&self) -> Result<Vec<Song>> {
+        let total = self
+            .count("AudioLibrary.GetSongs", json!({ "properties": [] }))
+            .await?;
         let result = self
             .call(
                 "AudioLibrary.GetSongs",
                 json!({
-                    "limits": { "start": 0, "end": 50000 },
+                    "limits": { "start": 0, "end": total },
                     "properties": ["artist", "album", "track", "duration"],
                     "sort": { "method": "title" }
                 }),
             )
             .await?;
-        let songs: Vec<Song> = serde_json::from_value(result["songs"].clone()).unwrap_or_default();
-        Ok(songs)
+        Ok(serde_json::from_value(result["songs"].clone()).unwrap_or_default())
     }
 
     pub async fn get_songs_for_album(&self, album_id: u32) -> Result<Vec<Song>> {
@@ -267,6 +276,36 @@ impl KodiClient {
         Ok(())
     }
 
+    pub async fn get_song_file(&self, song_id: u32) -> Result<String> {
+        let result = self
+            .call(
+                "AudioLibrary.GetSongDetails",
+                json!({ "songid": song_id, "properties": ["file"] }),
+            )
+            .await?;
+        let file = result["songdetails"]["file"]
+            .as_str()
+            .ok_or_else(|| anyhow!("no file path in song details"))?
+            .to_string();
+        Ok(file)
+    }
+
+    pub async fn fetch_vfs_bytes(&self, file_path: &str) -> Result<Vec<u8>> {
+        let encoded = percent_encode(file_path);
+        let url = format!("{}/vfs/{}", self.system.base_url(), encoded);
+        let resp = self
+            .client
+            .get(&url)
+            .basic_auth(&self.system.username, Some(&self.system.password))
+            .send()
+            .await?;
+        if !resp.status().is_success() {
+            return Err(anyhow!("VFS fetch failed: HTTP {}", resp.status()));
+        }
+        let bytes = resp.bytes().await?;
+        Ok(bytes.to_vec())
+    }
+
     pub async fn set_volume(&self, volume: u32) -> Result<()> {
         self.call("Application.SetVolume", json!({ "volume": volume }))
             .await?;
@@ -357,6 +396,17 @@ impl KodiClient {
             })
         }
     }
+}
+
+fn percent_encode(s: &str) -> String {
+    s.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                (b as char).to_string()
+            }
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
 }
 
 fn time_to_seconds(v: &Value) -> u32 {

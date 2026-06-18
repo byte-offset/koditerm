@@ -6,7 +6,7 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::{App, InputMode, LibraryItem, SearchMode, SearchScope};
+use crate::app::{App, InputMode, LibraryItem, PlaybackBackend, SearchMode, SearchScope};
 use crate::kodi::format_duration;
 
 pub fn draw(f: &mut Frame, app: &mut App) {
@@ -31,12 +31,49 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 
 fn draw_now_playing(f: &mut Frame, app: &App, area: Rect) {
     let status = &app.status;
+
+    let backend_span = if app.backend == PlaybackBackend::Local {
+        Span::styled(" LOCAL ", Style::default().fg(Color::Black).bg(Color::Yellow))
+    } else {
+        Span::styled(" REMOTE ", Style::default().fg(Color::DarkGray))
+    };
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(Span::styled(" Now Playing ", Style::default().fg(Color::Cyan)));
+        .title(Line::from(vec![
+            Span::styled(" Now Playing ", Style::default().fg(Color::Cyan)),
+            backend_span,
+        ]));
 
     let inner = block.inner(area);
     f.render_widget(block, area);
+
+    if app.backend == PlaybackBackend::Local {
+        if let Some(song) = &app.local_current_song {
+            let play_icon = if app.local_paused { "⏸" } else { "▶" };
+            let title_line = Line::from(vec![
+                Span::raw(format!("{play_icon} ")),
+                Span::styled(
+                    song.label.clone(),
+                    Style::default().add_modifier(Modifier::BOLD).fg(Color::White),
+                ),
+                Span::raw("  "),
+                Span::styled(
+                    song.artist.join(", "),
+                    Style::default().fg(Color::Yellow),
+                ),
+                Span::raw("  —  "),
+                Span::styled(song.album.clone(), Style::default().fg(Color::DarkGray)),
+            ]);
+            f.render_widget(Paragraph::new(title_line), inner);
+        } else {
+            f.render_widget(
+                Paragraph::new("Local mode. Select a song and press Enter to play.")
+                    .style(Style::default().fg(Color::DarkGray)),
+                inner,
+            );
+        }
+        return;
+    }
 
     if let Some(item) = &status.current_item {
         let play_icon = if status.playing { "▶" } else { "⏸" };
@@ -327,6 +364,7 @@ fn draw_help(f: &mut Frame, area: Rect) {
         (
             "General",
             &[
+                ("L",        "Toggle local/remote"),
                 ("?",        "Toggle this help"),
                 ("q",        "Quit"),
             ],

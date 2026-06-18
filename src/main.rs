@@ -1,10 +1,11 @@
 mod app;
 mod config;
 mod kodi;
+mod player;
 mod ui;
 
 use anyhow::Result;
-use app::{App, InputMode, SearchScope, SearchMode};
+use app::{App, InputMode, PlaybackBackend, SearchScope};
 use clap::Parser;
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers},
@@ -35,6 +36,7 @@ enum AppEvent {
     AlbumsLoaded(Vec<kodi::Album>),
     SongsLoaded(Vec<kodi::Song>),
     StatusUpdate(kodi::PlayerStatus),
+    LocalBytesReady { bytes: Vec<u8>, song: kodi::Song, clear: bool },
     Error(String),
 }
 
@@ -126,6 +128,7 @@ async fn main() -> Result<()> {
     });
 
     let mut quit = false;
+    let mut local_player: Option<player::LocalPlayer> = None;
 
     while !quit {
         // Draw
@@ -158,7 +161,35 @@ async fn main() -> Result<()> {
                     app.status_message = Some(e);
                     app.loading = false;
                 }
-                Ok(AppEvent::Tick) => {}
+                Ok(AppEvent::Tick) => {
+                    if let Some(ref lp) = local_player {
+                        let mut app = app.lock().unwrap();
+                        if app.backend == PlaybackBackend::Local {
+                            app.local_paused = lp.is_paused();
+                            if lp.empty() {
+                                app.local_current_song = None;
+                            }
+                        }
+                    }
+                }
+                Ok(AppEvent::LocalBytesReady { bytes, song, clear }) => {
+                    if let Some(ref mut lp) = local_player {
+                        let result = if clear { lp.play_bytes(bytes) } else { lp.queue_bytes(bytes) };
+                        let mut app = app.lock().unwrap();
+                        match result {
+                            Ok(()) => {
+                                if clear {
+                                    app.local_current_song = Some(song);
+                                    app.local_paused = false;
+                                }
+                                app.status_message = None;
+                            }
+                            Err(e) => {
+                                app.status_message = Some(format!("Playback error: {e}"));
+                            }
+                        }
+                    }
+                }
                 Ok(AppEvent::Key(key)) => {
                     let action = {
                         let mut app = app.lock().unwrap();
@@ -169,25 +200,83 @@ async fn main() -> Result<()> {
                             quit = true;
                             break;
                         }
-                        // Spawn async action
-                        let kodi = {
-                            let app = app.lock().unwrap();
-                            Arc::clone(&app.kodi)
-                        };
-                        let status = {
-                            let app = app.lock().unwrap();
-                            app.status.clone()
-                        };
-                        let tx = tx.clone();
-                        tokio::spawn(async move {
-                            if let Err(e) = dispatch_action(&kodi, &a, &status).await {
-                                let _ = tx.send(AppEvent::Error(format!("Error: {e}")));
+                        if a == "toggle_backend" {
+                            let new_backend = {
+                                let mut app = app.lock().unwrap();
+                                app.toggle_backend();
+                                app.backend.clone()
+                            };
+                            if new_backend == PlaybackBackend::Local {
+                                match init_local_player() {
+                                    Ok(lp) => {
+                                        local_player = Some(lp);
+                                        app.lock().unwrap().status_message =
+                                            Some("Local playback mode (songs only)".to_string());
+                                    }
+                                    Err(e) => {
+                                        let mut app = app.lock().unwrap();
+                                        app.toggle_backend(); // revert
+                                        app.status_message =
+                                            Some(format!("Local audio unavailable: {e}"));
+                                    }
+                                }
+                            } else {
+                                app.lock().unwrap().status_message =
+                                    Some("Remote playback mode".to_string());
                             }
-                            // Refresh status after action
-                            if let Ok(s) = kodi.get_status().await {
-                                let _ = tx.send(AppEvent::StatusUpdate(s));
+                        } else if a == "local_toggle_pause" {
+                            if let Some(ref lp) = local_player {
+                                lp.toggle_pause();
                             }
-                        });
+                        } else if a == "local_stop" {
+                            if let Some(ref mut lp) = local_player {
+                                if let Err(e) = lp.stop() {
+                                    app.lock().unwrap().status_message =
+                                        Some(format!("Stop error: {e}"));
+                                }
+                            }
+                            app.lock().unwrap().local_current_song = None;
+                        } else if a.starts_with("local_play_song:") || a.starts_with("local_queue_song:") {
+                            let clear = a.starts_with("local_play_song:");
+                            let id: u32 = a.splitn(2, ':').nth(1).unwrap_or("0").parse().unwrap_or(0);
+                            let song = {
+                                let app = app.lock().unwrap();
+                                app.all_songs.iter().find(|s| s.songid == id).cloned()
+                            };
+                            if let Some(song) = song {
+                                let kodi = Arc::clone(&kodi_ref);
+                                let tx = tx.clone();
+                                tokio::spawn(async move {
+                                    match fetch_local_bytes(&kodi, song.songid).await {
+                                        Ok(bytes) => {
+                                            let _ = tx.send(AppEvent::LocalBytesReady { bytes, song, clear });
+                                        }
+                                        Err(e) => {
+                                            let _ = tx.send(AppEvent::Error(format!("Local fetch: {e}")));
+                                        }
+                                    }
+                                });
+                            }
+                        } else {
+                            // Remote Kodi action
+                            let kodi = {
+                                let app = app.lock().unwrap();
+                                Arc::clone(&app.kodi)
+                            };
+                            let status = {
+                                let app = app.lock().unwrap();
+                                app.status.clone()
+                            };
+                            let tx = tx.clone();
+                            tokio::spawn(async move {
+                                if let Err(e) = dispatch_action(&kodi, &a, &status).await {
+                                    let _ = tx.send(AppEvent::Error(format!("Error: {e}")));
+                                }
+                                if let Ok(s) = kodi.get_status().await {
+                                    let _ = tx.send(AppEvent::StatusUpdate(s));
+                                }
+                            });
+                        }
                     }
                 }
                 Err(_) => break,
@@ -242,18 +331,6 @@ fn handle_key_search(app: &mut App, key: KeyEvent) -> Option<String> {
             app.pop_search_char();
             None
         }
-        KeyCode::Char(c) => {
-            app.push_search_char(c);
-            None
-        }
-        KeyCode::Down => {
-            app.move_down(app.visible_rows);
-            None
-        }
-        KeyCode::Up => {
-            app.move_up(app.visible_rows);
-            None
-        }
         KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
             app.half_page_down();
             None
@@ -268,6 +345,18 @@ fn handle_key_search(app: &mut App, key: KeyEvent) -> Option<String> {
         }
         KeyCode::Char('p') if key.modifiers.contains(KeyModifiers::CONTROL) => {
             app.prev_scope();
+            None
+        }
+        KeyCode::Char(c) => {
+            app.push_search_char(c);
+            None
+        }
+        KeyCode::Down => {
+            app.move_down(app.visible_rows);
+            None
+        }
+        KeyCode::Up => {
+            app.move_up(app.visible_rows);
             None
         }
         KeyCode::PageDown => {
@@ -358,10 +447,17 @@ fn handle_key_normal(app: &mut App, key: KeyEvent) -> Option<String> {
             app.go_bottom();
             None
         }
+        KeyCode::Char('L') => Some("toggle_backend".to_string()),
         KeyCode::Enter => play_selected(app),
         KeyCode::Char('a') => queue_selected(app),
         KeyCode::Char(' ') => {
-            if let Some(pid) = app.status.player_id {
+            if app.backend == PlaybackBackend::Local {
+                if app.local_current_song.is_some() {
+                    Some("local_toggle_pause".to_string())
+                } else {
+                    play_selected(app)
+                }
+            } else if let Some(pid) = app.status.player_id {
                 Some(format!("toggle_pause:{pid}"))
             } else {
                 play_selected(app)
@@ -369,7 +465,13 @@ fn handle_key_normal(app: &mut App, key: KeyEvent) -> Option<String> {
         }
         KeyCode::Char('n') => app.status.player_id.map(|pid| format!("next:{pid}")),
         KeyCode::Char('p') => app.status.player_id.map(|pid| format!("prev:{pid}")),
-        KeyCode::Char('s') => app.status.player_id.map(|pid| format!("stop:{pid}")),
+        KeyCode::Char('s') => {
+            if app.backend == PlaybackBackend::Local {
+                Some("local_stop".to_string())
+            } else {
+                app.status.player_id.map(|pid| format!("stop:{pid}"))
+            }
+        }
         KeyCode::Char('+') | KeyCode::Char('=') => {
             let vol = (app.status.volume + 5).min(100);
             Some(format!("volume:{vol}"))
@@ -399,19 +501,69 @@ fn handle_key_normal(app: &mut App, key: KeyEvent) -> Option<String> {
 }
 
 fn play_selected(app: &App) -> Option<String> {
-    match app.selected_item()? {
-        app::LibraryItem::Artist(a) => Some(format!("play_artist:{}", a.artistid)),
-        app::LibraryItem::Album(a) => Some(format!("play_album:{}", a.albumid)),
-        app::LibraryItem::Song(s) => Some(format!("play_song:{}", s.songid)),
+    let item = app.selected_item()?;
+    if app.backend == PlaybackBackend::Local {
+        match item {
+            app::LibraryItem::Song(s) => Some(format!("local_play_song:{}", s.songid)),
+            _ => None,
+        }
+    } else {
+        match item {
+            app::LibraryItem::Artist(a) => Some(format!("play_artist:{}", a.artistid)),
+            app::LibraryItem::Album(a) => Some(format!("play_album:{}", a.albumid)),
+            app::LibraryItem::Song(s) => Some(format!("play_song:{}", s.songid)),
+        }
     }
 }
 
 fn queue_selected(app: &App) -> Option<String> {
-    match app.selected_item()? {
-        app::LibraryItem::Artist(a) => Some(format!("queue_artist:{}", a.artistid)),
-        app::LibraryItem::Album(a) => Some(format!("queue_album:{}", a.albumid)),
-        app::LibraryItem::Song(s) => Some(format!("queue_song:{}", s.songid)),
+    let item = app.selected_item()?;
+    if app.backend == PlaybackBackend::Local {
+        match item {
+            app::LibraryItem::Song(s) => Some(format!("local_queue_song:{}", s.songid)),
+            _ => None,
+        }
+    } else {
+        match item {
+            app::LibraryItem::Artist(a) => Some(format!("queue_artist:{}", a.artistid)),
+            app::LibraryItem::Album(a) => Some(format!("queue_album:{}", a.albumid)),
+            app::LibraryItem::Song(s) => Some(format!("queue_song:{}", s.songid)),
+        }
     }
+}
+
+fn init_local_player() -> anyhow::Result<player::LocalPlayer> {
+    // ALSA prints spurious "cannot find card" messages to stderr that bleed
+    // through the TUI. Redirect stderr to /dev/null for the duration of init.
+    #[cfg(unix)]
+    {
+        use std::ffi::c_char;
+        extern "C" {
+            fn dup(fd: i32) -> i32;
+            fn dup2(oldfd: i32, newfd: i32) -> i32;
+            fn open(path: *const c_char, oflag: i32) -> i32;
+            fn close(fd: i32) -> i32;
+        }
+        const O_WRONLY: i32 = 1;
+        unsafe {
+            let saved = dup(2);
+            let null = open(b"/dev/null\0".as_ptr() as *const c_char, O_WRONLY);
+            dup2(null, 2);
+            close(null);
+            let result = player::LocalPlayer::new();
+            dup2(saved, 2);
+            close(saved);
+            result
+        }
+    }
+    #[cfg(not(unix))]
+    player::LocalPlayer::new()
+}
+
+async fn fetch_local_bytes(kodi: &kodi::KodiClient, song_id: u32) -> anyhow::Result<Vec<u8>> {
+    let file_path = kodi.get_song_file(song_id).await?;
+    let bytes = kodi.fetch_vfs_bytes(&file_path).await?;
+    Ok(bytes)
 }
 
 async fn dispatch_action(
