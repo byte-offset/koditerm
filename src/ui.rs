@@ -295,6 +295,7 @@ fn draw_help(f: &mut Frame, area: Rect) {
             "Search & Scope",
             &[
                 ("/",            "New search"),
+                ("Tab",          "Toggle exact / fuzzy matching"),
                 ("Esc",          "Cancel search"),
                 ("F1",           "Scope: All"),
                 ("F2",           "Scope: Artists"),
