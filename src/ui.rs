@@ -95,7 +95,7 @@ fn draw_now_playing(f: &mut Frame, app: &App, area: Rect) {
             );
         } else {
             f.render_widget(
-                Paragraph::new("Local mode. Select a song and press Enter to play.")
+                Paragraph::new("Local mode. Press Enter to play, 'a' to queue.")
                     .style(Style::default().fg(Color::DarkGray)),
                 inner,
             );

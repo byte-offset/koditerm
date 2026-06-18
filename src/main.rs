@@ -45,6 +45,7 @@ enum AppEvent {
     SongsLoaded(Vec<kodi::Song>),
     StatusUpdate(kodi::PlayerStatus),
     RemoteQueueUpdate(Vec<kodi::Song>),
+    LocalSongListReady { songs: Vec<kodi::Song>, clear: bool },
     LocalBytesReady { bytes: Vec<u8>, song: kodi::Song, clear: bool },
     Error(String),
 }
@@ -233,6 +234,49 @@ async fn main() -> Result<()> {
                         }
                     }
                 }
+                Ok(AppEvent::LocalSongListReady { songs, clear }) => {
+                    if songs.is_empty() {
+                        app.lock().unwrap().status_message = Some("No songs found".to_string());
+                    } else {
+                        let fetch = {
+                            let mut app = app.lock().unwrap();
+                            let was_idle = app.local_current_song.is_none();
+
+                            if clear {
+                                app.local_queue.clear();
+                                app.local_queue_pos = 0;
+                                app.local_current_song = None;
+                                app.local_fetching = false;
+                                app.local_position = 0;
+                            }
+
+                            let start_pos = app.local_queue.len();
+                            app.local_queue.extend(songs.iter().cloned());
+                            app.apply_filter();
+
+                            if clear || was_idle {
+                                let pos = if clear { 0 } else { start_pos };
+                                app.local_queue_pos = pos;
+                                app.local_fetching = true;
+                                Some((songs[0].clone(), clear))
+                            } else {
+                                app.status_message =
+                                    Some(format!("{} songs added to queue", songs.len()));
+                                None
+                            }
+                        };
+                        if let Some((song, use_clear)) = fetch {
+                            let kodi = Arc::clone(&kodi_ref);
+                            let tx = tx.clone();
+                            tokio::spawn(async move {
+                                match fetch_local_bytes(&kodi, song.songid).await {
+                                    Ok(bytes) => { let _ = tx.send(AppEvent::LocalBytesReady { bytes, song, clear: use_clear }); }
+                                    Err(e) => { let _ = tx.send(AppEvent::Error(format!("Local fetch: {e}"))); }
+                                }
+                            });
+                        }
+                    }
+                }
                 Ok(AppEvent::LocalBytesReady { bytes, song, clear }) => {
                     if let Some(ref mut lp) = local_player {
                         let kb = bytes.len() / 1024;
@@ -355,6 +399,23 @@ async fn main() -> Result<()> {
                                     }
                                 });
                             }
+                        } else if a.starts_with("local_play_album:")
+                            || a.starts_with("local_play_artist:")
+                            || a.starts_with("local_queue_album:")
+                            || a.starts_with("local_queue_artist:")
+                        {
+                            let parts: Vec<&str> = a.splitn(2, ':').collect();
+                            let id: u32 = parts.get(1).unwrap_or(&"0").parse().unwrap_or(0);
+                            let clear = parts[0] == "local_play_album" || parts[0] == "local_play_artist";
+                            let is_album = parts[0].contains("album");
+                            let kodi = Arc::clone(&kodi_ref);
+                            let tx = tx.clone();
+                            tokio::spawn(async move {
+                                match fetch_song_list(&kodi, id, is_album).await {
+                                    Ok(songs) => { let _ = tx.send(AppEvent::LocalSongListReady { songs, clear }); }
+                                    Err(e) => { let _ = tx.send(AppEvent::Error(format!("Fetch songs: {e}"))); }
+                                }
+                            });
                         } else {
                             // Remote Kodi action
                             let kodi = {
@@ -620,7 +681,8 @@ fn play_selected(app: &App) -> Option<String> {
     if app.backend == PlaybackBackend::Local {
         match item {
             app::LibraryItem::Song(s) => Some(format!("local_play_song:{}", s.songid)),
-            _ => None,
+            app::LibraryItem::Album(a) => Some(format!("local_play_album:{}", a.albumid)),
+            app::LibraryItem::Artist(a) => Some(format!("local_play_artist:{}", a.artistid)),
         }
     } else {
         match item {
@@ -636,7 +698,8 @@ fn queue_selected(app: &App) -> Option<String> {
     if app.backend == PlaybackBackend::Local {
         match item {
             app::LibraryItem::Song(s) => Some(format!("local_queue_song:{}", s.songid)),
-            _ => None,
+            app::LibraryItem::Album(a) => Some(format!("local_queue_album:{}", a.albumid)),
+            app::LibraryItem::Artist(a) => Some(format!("local_queue_artist:{}", a.artistid)),
         }
     } else {
         match item {
@@ -649,6 +712,14 @@ fn queue_selected(app: &App) -> Option<String> {
 
 fn init_local_player(device_name: Option<&str>) -> anyhow::Result<player::LocalPlayer> {
     player::LocalPlayer::new(device_name)
+}
+
+async fn fetch_song_list(kodi: &kodi::KodiClient, id: u32, is_album: bool) -> anyhow::Result<Vec<kodi::Song>> {
+    if is_album {
+        kodi.get_songs_for_album(id).await
+    } else {
+        kodi.get_songs_for_artist(id).await
+    }
 }
 
 async fn fetch_local_bytes(kodi: &kodi::KodiClient, song_id: u32) -> anyhow::Result<Vec<u8>> {
