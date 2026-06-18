@@ -27,6 +27,9 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     if app.show_help {
         draw_help(f, area);
     }
+    if app.show_track_info {
+        draw_track_info(f, app, area);
+    }
 }
 
 fn draw_now_playing(f: &mut Frame, app: &App, area: Rect) {
@@ -126,7 +129,7 @@ fn draw_now_playing(f: &mut Frame, app: &App, area: Rect) {
             Span::raw(format!("{play_icon} ")),
             Span::styled(&item.title, Style::default().add_modifier(Modifier::BOLD).fg(Color::White)),
             Span::raw("  "),
-            Span::styled(&item.artist, Style::default().fg(Color::Yellow)),
+            Span::styled(item.artist.join(", "), Style::default().fg(Color::Yellow)),
             Span::raw("  —  "),
             Span::styled(&item.album, Style::default().fg(Color::DarkGray)),
         ]);
@@ -398,7 +401,7 @@ fn draw_search_bar(f: &mut Frame, app: &App, area: Rect) {
             (
                 format!(" Search ({scope}, {mode}) "),
                 format!("{}_", app.search_query),
-                " ESC cancel  Enter play  Tab toggle fuzzy/exact  F1-F4 scope ".to_string(),
+                " ESC: cancel  ENTER: play  F5: queue  TAB: fuzzy/exact  F1-F4: scope ".to_string(),
             )
         }
         InputMode::Normal => {
@@ -414,7 +417,7 @@ fn draw_search_bar(f: &mut Frame, app: &App, area: Rect) {
             (
                 " koditerm ".to_string(),
                 msg,
-                " /search  j/k nav  gg/G top/bot  Enter play  Space pause  n/p skip  r repeat  +/- vol  q quit ".to_string(),
+                " /: search  j/k: nav  gg/G: top/bot  ENTER: play  SPACE: pause  n/p: skip  r: repeat  i: info  +/-: vol  q: quit ".to_string(),
             )
         }
         InputMode::Command => (
@@ -507,6 +510,7 @@ fn draw_help(f: &mut Frame, area: Rect) {
             "General",
             &[
                 ("L",        "Toggle local/remote"),
+                ("i",        "Track info popup"),
                 ("?",        "Toggle this help"),
                 ("q",        "Quit"),
             ],
@@ -568,6 +572,125 @@ fn draw_help(f: &mut Frame, area: Rect) {
         Rect { x: cols[1].x, y: cols[1].y, width: 1, height: cols[1].height },
     );
     f.render_widget(Paragraph::new(right_lines), cols[2]);
+}
+
+fn draw_track_info(f: &mut Frame, app: &App, area: Rect) {
+    let label_style = Style::default().fg(Color::DarkGray);
+    let value_style = Style::default().fg(Color::White);
+    let title_style = Style::default().fg(Color::White).add_modifier(Modifier::BOLD);
+
+    let mut lines: Vec<Line> = vec![Line::from("")];
+
+    match app.backend {
+        PlaybackBackend::Local => {
+            if let Some(song) = &app.local_current_song {
+                lines.push(Line::from(Span::styled(song.label.clone(), title_style)));
+                lines.push(Line::from(""));
+                lines.push(Line::from(vec![
+                    Span::styled("Artist       ", label_style),
+                    Span::styled(song.artist.join(", "), value_style),
+                ]));
+                lines.push(Line::from(vec![
+                    Span::styled("Album        ", label_style),
+                    Span::styled(song.album.clone(), value_style),
+                ]));
+                if let Some(t) = song.track {
+                    lines.push(Line::from(vec![
+                        Span::styled("Track        ", label_style),
+                        Span::styled(t.to_string(), value_style),
+                    ]));
+                }
+                if let Some(d) = song.duration {
+                    lines.push(Line::from(vec![
+                        Span::styled("Duration     ", label_style),
+                        Span::styled(format_duration(d), value_style),
+                    ]));
+                }
+            } else {
+                lines.push(Line::from(Span::styled(
+                    "Nothing playing.",
+                    Style::default().fg(Color::DarkGray),
+                )));
+            }
+        }
+        PlaybackBackend::Remote => {
+            if let Some(item) = &app.status.current_item {
+                lines.push(Line::from(Span::styled(item.title.clone(), title_style)));
+                lines.push(Line::from(""));
+
+                let mut row = |label: &'static str, val: String| {
+                    if !val.is_empty() {
+                        lines.push(Line::from(vec![
+                            Span::styled(format!("{label:<13}"), label_style),
+                            Span::styled(val, value_style),
+                        ]));
+                    }
+                };
+
+                row("Artist", item.artist.join(", "));
+                row("Album", item.album.clone());
+                if item.albumartist != item.artist && !item.albumartist.is_empty() {
+                    row("Album Artist", item.albumartist.join(", "));
+                }
+                row("Genre", item.genre.join(", "));
+
+                let mut meta = Vec::new();
+                if let Some(y) = item.year { meta.push(y.to_string()); }
+                if let Some(t) = item.track {
+                    if let Some(d) = item.disc {
+                        meta.push(format!("Track {t} / Disc {d}"));
+                    } else {
+                        meta.push(format!("Track {t}"));
+                    }
+                }
+                if !meta.is_empty() {
+                    row("", meta.join("   "));
+                }
+
+                row("Duration", format_duration(item.duration));
+
+                if item.rating > 0.0 {
+                    row("Rating", format!("{:.1}", item.rating));
+                }
+                if item.playcount > 0 {
+                    row("Play count", item.playcount.to_string());
+                }
+                if !item.comment.is_empty() {
+                    row("Comment", item.comment.clone());
+                }
+                if !item.file.is_empty() {
+                    lines.push(Line::from(""));
+                    lines.push(Line::from(vec![
+                        Span::styled("File         ", label_style),
+                        Span::styled(item.file.clone(), Style::default().fg(Color::DarkGray)),
+                    ]));
+                }
+            } else {
+                lines.push(Line::from(Span::styled(
+                    "Nothing playing.",
+                    Style::default().fg(Color::DarkGray),
+                )));
+            }
+        }
+    }
+
+    lines.push(Line::from(""));
+
+    let popup_w = (area.width * 3 / 4).max(60).min(area.width);
+    let popup_h = (lines.len() as u16 + 2).min(area.height);
+    let popup_area = center_rect(popup_w, popup_h, area);
+
+    f.render_widget(Clear, popup_area);
+    f.render_widget(
+        Paragraph::new(lines)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(Span::styled(" Track Info  (any key to close) ", Style::default().fg(Color::Cyan))),
+            )
+            .wrap(ratatui::widgets::Wrap { trim: false }),
+        popup_area,
+    );
 }
 
 fn center_rect(width: u16, height: u16, area: Rect) -> Rect {

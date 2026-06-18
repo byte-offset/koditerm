@@ -535,9 +535,13 @@ async fn main() -> Result<()> {
 }
 
 fn handle_key(app: &mut App, key: KeyEvent) -> Option<String> {
-    // Help overlay intercepts all keys — any key closes it
+    // Overlays intercept all keys — any key closes them
     if app.show_help {
         app.show_help = false;
+        return None;
+    }
+    if app.show_track_info {
+        app.show_track_info = false;
         return None;
     }
     match &app.input_mode {
@@ -806,6 +810,10 @@ fn handle_key_normal(app: &mut App, key: KeyEvent) -> Option<String> {
             None
         }
         KeyCode::Char('r') => Some("toggle_repeat".to_string()),
+        KeyCode::Char('i') => {
+            app.show_track_info = true;
+            None
+        }
         _ => None,
     }
 }

@@ -115,6 +115,7 @@ pub struct App {
     pub local_position: u32,
     pub pending_count: String,
     pub repeat_mode: RepeatMode,
+    pub show_track_info: bool,
 }
 
 impl App {
@@ -152,6 +153,7 @@ impl App {
             local_position: 0,
             pending_count: String::new(),
             repeat_mode: RepeatMode::Off,
+            show_track_info: false,
         }
     }
 

@@ -46,9 +46,18 @@ pub struct PlayerStatus {
 #[derive(Debug, Clone)]
 pub struct CurrentItem {
     pub title: String,
-    pub artist: String,
+    pub artist: Vec<String>,
     pub album: String,
+    pub albumartist: Vec<String>,
+    pub genre: Vec<String>,
+    pub year: Option<u32>,
+    pub track: Option<u32>,
+    pub disc: Option<u32>,
     pub duration: u32,
+    pub rating: f32,
+    pub playcount: u32,
+    pub comment: String,
+    pub file: String,
 }
 
 impl Default for PlayerStatus {
@@ -408,24 +417,35 @@ impl KodiClient {
                     "Player.GetItem",
                     json!({
                         "playerid": pid,
-                        "properties": ["title", "artist", "album", "duration"]
+                        "properties": [
+                            "title", "artist", "album", "albumartist",
+                            "genre", "year", "track", "disc", "duration",
+                            "rating", "playcount", "comment", "file"
+                        ]
                     }),
                 )
                 .await?;
 
+            let it = &item["item"];
+            let str_vec = |v: &Value| -> Vec<String> {
+                v.as_array()
+                    .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+                    .unwrap_or_default()
+            };
             let current = CurrentItem {
-                title: item["item"]["label"]
-                    .as_str()
-                    .unwrap_or("")
-                    .to_string(),
-                artist: item["item"]["artist"]
-                    .as_array()
-                    .and_then(|a| a.first())
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string(),
-                album: item["item"]["album"].as_str().unwrap_or("").to_string(),
+                title: it["label"].as_str().unwrap_or("").to_string(),
+                artist: str_vec(&it["artist"]),
+                album: it["album"].as_str().unwrap_or("").to_string(),
+                albumartist: str_vec(&it["albumartist"]),
+                genre: str_vec(&it["genre"]),
+                year: it["year"].as_u64().filter(|&y| y > 0).map(|y| y as u32),
+                track: it["track"].as_u64().filter(|&t| t > 0).map(|t| t as u32),
+                disc: it["disc"].as_u64().filter(|&d| d > 0).map(|d| d as u32),
                 duration: dur_secs,
+                rating: it["rating"].as_f64().unwrap_or(0.0) as f32,
+                playcount: it["playcount"].as_u64().unwrap_or(0) as u32,
+                comment: it["comment"].as_str().unwrap_or("").to_string(),
+                file: it["file"].as_str().unwrap_or("").to_string(),
             };
 
             Ok(PlayerStatus {
