@@ -6,7 +6,7 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::{App, InputMode, LibraryItem, SearchScope};
+use crate::app::{App, InputMode, LibraryItem, SearchMode, SearchScope};
 use crate::kodi::format_duration;
 
 pub fn draw(f: &mut Frame, app: &mut App) {
@@ -220,10 +220,14 @@ fn draw_search_bar(f: &mut Frame, app: &App, area: Rect) {
                 SearchScope::Albums => "albums",
                 SearchScope::Songs => "songs",
             };
+            let mode = match app.search_mode {
+                SearchMode::Exact => "exact",
+                SearchMode::Fuzzy => "fuzzy",
+            };
             (
-                format!(" Search ({scope}) "),
+                format!(" Search ({scope}, {mode}) "),
                 format!("{}_", app.search_query),
-                " ESC cancel  Enter play  F1-F4 scope ".to_string(),
+                " ESC cancel  Enter play  Tab toggle fuzzy/exact  F1-F4 scope ".to_string(),
             )
         }
         InputMode::Normal => {

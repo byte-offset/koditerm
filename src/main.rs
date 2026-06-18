@@ -4,7 +4,7 @@ mod kodi;
 mod ui;
 
 use anyhow::Result;
-use app::{App, InputMode, SearchScope};
+use app::{App, InputMode, SearchScope, SearchMode};
 use clap::Parser;
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers},
@@ -233,6 +233,10 @@ fn handle_key_search(app: &mut App, key: KeyEvent) -> Option<String> {
         KeyCode::F(5) => {
             // Queue without leaving search
             queue_selected(app)
+        }
+        KeyCode::Tab => {
+            app.toggle_search_mode();
+            None
         }
         KeyCode::Backspace => {
             app.pop_search_char();

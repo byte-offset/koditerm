@@ -10,6 +10,12 @@ pub enum SearchScope {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SearchMode {
+    Exact,
+    Fuzzy,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InputMode {
     Normal,
     Search,
@@ -68,6 +74,7 @@ pub struct App {
     pub status: PlayerStatus,
     pub input_mode: InputMode,
     pub search_scope: SearchScope,
+    pub search_mode: SearchMode,
     pub search_query: String,
     pub all_artists: Vec<Artist>,
     pub all_albums: Vec<Album>,
@@ -94,6 +101,7 @@ impl App {
             status: PlayerStatus::default(),
             input_mode: InputMode::Normal,
             search_scope: SearchScope::All,
+            search_mode: SearchMode::Exact,
             search_query: String::new(),
             all_artists: Vec::new(),
             all_albums: Vec::new(),
@@ -153,17 +161,28 @@ impl App {
         }
     }
 
+    pub fn toggle_search_mode(&mut self) {
+        self.search_mode = match self.search_mode {
+            SearchMode::Exact => SearchMode::Fuzzy,
+            SearchMode::Fuzzy => SearchMode::Exact,
+        };
+        self.selected = 0;
+        self.list_offset = 0;
+        self.apply_filter();
+    }
+
     pub fn apply_filter(&mut self) {
         let q = self.search_query.to_lowercase();
+        let mode = &self.search_mode;
         self.filtered_items = match self.search_scope {
-            SearchScope::Artists => fuzzy_filter_artists(&self.all_artists, &q),
-            SearchScope::Albums => fuzzy_filter_albums(&self.all_albums, &q),
-            SearchScope::Songs => fuzzy_filter_songs(&self.all_songs, &q),
+            SearchScope::Artists => filter_artists(&self.all_artists, &q, mode),
+            SearchScope::Albums => filter_albums(&self.all_albums, &q, mode),
+            SearchScope::Songs => filter_songs(&self.all_songs, &q, mode),
             SearchScope::All => {
                 let mut items = Vec::new();
-                items.extend(fuzzy_filter_artists(&self.all_artists, &q));
-                items.extend(fuzzy_filter_albums(&self.all_albums, &q));
-                items.extend(fuzzy_filter_songs(&self.all_songs, &q));
+                items.extend(filter_artists(&self.all_artists, &q, mode));
+                items.extend(filter_albums(&self.all_albums, &q, mode));
+                items.extend(filter_songs(&self.all_songs, &q, mode));
                 items
             }
         };
@@ -290,45 +309,108 @@ impl App {
     }
 }
 
-fn matches(haystack: &str, needle: &str) -> bool {
+fn exact_match(haystack: &str, needle: &str) -> bool {
     haystack.to_lowercase().contains(&needle.to_lowercase())
 }
 
-fn fuzzy_filter_artists(artists: &[Artist], q: &str) -> Vec<LibraryItem> {
-    artists
-        .iter()
-        .filter(|a| q.is_empty() || matches(&a.label, q))
-        .cloned()
-        .map(LibraryItem::Artist)
-        .collect()
+// Returns a score (lower = better) if all characters of needle appear as a
+// subsequence in haystack, or None if they don't.
+fn fuzzy_score(haystack: &str, needle: &str) -> Option<i64> {
+    if needle.is_empty() {
+        return Some(0);
+    }
+    let h = haystack.to_lowercase();
+    let n = needle.to_lowercase();
+    let mut hi = h.chars().peekable();
+    let mut score: i64 = 0;
+    let mut last_match = 0usize;
+    for nc in n.chars() {
+        let mut found = false;
+        let mut pos = last_match;
+        while let Some(hc) = hi.next() {
+            pos += 1;
+            if hc == nc {
+                score -= pos as i64 - last_match as i64;
+                last_match = pos;
+                found = true;
+                break;
+            }
+        }
+        if !found {
+            return None;
+        }
+    }
+    Some(score)
 }
 
-fn fuzzy_filter_albums(albums: &[Album], q: &str) -> Vec<LibraryItem> {
-    albums
-        .iter()
-        .filter(|a| {
-            if q.is_empty() {
-                return true;
-            }
-            let combined = format!("{} {}", a.label, a.artist.join(" "));
-            matches(&combined, q)
-        })
-        .cloned()
-        .map(LibraryItem::Album)
-        .collect()
+fn filter_artists(artists: &[Artist], q: &str, mode: &SearchMode) -> Vec<LibraryItem> {
+    if q.is_empty() {
+        return artists.iter().cloned().map(LibraryItem::Artist).collect();
+    }
+    match mode {
+        SearchMode::Exact => artists
+            .iter()
+            .filter(|a| exact_match(&a.label, q))
+            .cloned()
+            .map(LibraryItem::Artist)
+            .collect(),
+        SearchMode::Fuzzy => {
+            let mut scored: Vec<_> = artists
+                .iter()
+                .filter_map(|a| fuzzy_score(&a.label, q).map(|s| (s, a)))
+                .collect();
+            scored.sort_by_key(|(s, _)| *s);
+            scored.into_iter().map(|(_, a)| LibraryItem::Artist(a.clone())).collect()
+        }
+    }
 }
 
-fn fuzzy_filter_songs(songs: &[Song], q: &str) -> Vec<LibraryItem> {
-    songs
-        .iter()
-        .filter(|s| {
-            if q.is_empty() {
-                return true;
-            }
-            let combined = format!("{} {} {}", s.label, s.artist.join(" "), s.album);
-            matches(&combined, q)
-        })
-        .cloned()
-        .map(LibraryItem::Song)
-        .collect()
+fn filter_albums(albums: &[Album], q: &str, mode: &SearchMode) -> Vec<LibraryItem> {
+    if q.is_empty() {
+        return albums.iter().cloned().map(LibraryItem::Album).collect();
+    }
+    match mode {
+        SearchMode::Exact => albums
+            .iter()
+            .filter(|a| exact_match(&format!("{} {}", a.label, a.artist.join(" ")), q))
+            .cloned()
+            .map(LibraryItem::Album)
+            .collect(),
+        SearchMode::Fuzzy => {
+            let mut scored: Vec<_> = albums
+                .iter()
+                .filter_map(|a| {
+                    let combined = format!("{} {}", a.label, a.artist.join(" "));
+                    fuzzy_score(&combined, q).map(|s| (s, a))
+                })
+                .collect();
+            scored.sort_by_key(|(s, _)| *s);
+            scored.into_iter().map(|(_, a)| LibraryItem::Album(a.clone())).collect()
+        }
+    }
+}
+
+fn filter_songs(songs: &[Song], q: &str, mode: &SearchMode) -> Vec<LibraryItem> {
+    if q.is_empty() {
+        return songs.iter().cloned().map(LibraryItem::Song).collect();
+    }
+    match mode {
+        SearchMode::Exact => songs
+            .iter()
+            .filter(|s| exact_match(&format!("{} {} {}", s.label, s.artist.join(" "), s.album), q))
+            .cloned()
+            .map(LibraryItem::Song)
+            .collect(),
+        SearchMode::Fuzzy => {
+            let mut scored: Vec<_> = songs
+                .iter()
+                .filter_map(|s| {
+                    let combined = format!("{} {} {}", s.label, s.artist.join(" "), s.album);
+                    fuzzy_score(&combined, q).map(|sc| (sc, s))
+                })
+                .collect();
+            scored.sort_by_key(|(s, _)| *s);
+            scored.into_iter().map(|(_, s)| LibraryItem::Song(s.clone())).collect()
+        }
+    }
 }
