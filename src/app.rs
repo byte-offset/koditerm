@@ -248,6 +248,24 @@ impl App {
         self.apply_filter();
     }
 
+    pub fn next_scope(&mut self) {
+        self.set_scope(match self.search_scope {
+            SearchScope::All => SearchScope::Artists,
+            SearchScope::Artists => SearchScope::Albums,
+            SearchScope::Albums => SearchScope::Songs,
+            SearchScope::Songs => SearchScope::All,
+        });
+    }
+
+    pub fn prev_scope(&mut self) {
+        self.set_scope(match self.search_scope {
+            SearchScope::All => SearchScope::Songs,
+            SearchScope::Artists => SearchScope::All,
+            SearchScope::Albums => SearchScope::Artists,
+            SearchScope::Songs => SearchScope::Albums,
+        });
+    }
+
     pub fn push_search_char(&mut self, c: char) {
         self.search_query.push(c);
         self.selected = 0;

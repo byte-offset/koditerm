@@ -243,6 +243,14 @@ fn handle_key_search(app: &mut App, key: KeyEvent) -> Option<String> {
             app.half_page_up();
             None
         }
+        KeyCode::Char('n') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            app.next_scope();
+            None
+        }
+        KeyCode::Char('p') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            app.prev_scope();
+            None
+        }
         KeyCode::PageDown => {
             app.page_down();
             None
@@ -305,6 +313,14 @@ fn handle_key_normal(app: &mut App, key: KeyEvent) -> Option<String> {
         }
         KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
             app.half_page_up();
+            None
+        }
+        KeyCode::Char('n') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            app.next_scope();
+            None
+        }
+        KeyCode::Char('p') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            app.prev_scope();
             None
         }
         KeyCode::PageDown => {
