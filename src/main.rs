@@ -198,6 +198,11 @@ async fn main() -> Result<()> {
 }
 
 fn handle_key(app: &mut App, key: KeyEvent) -> Option<String> {
+    // Help overlay intercepts all keys — any key closes it
+    if app.show_help {
+        app.show_help = false;
+        return None;
+    }
     match &app.input_mode {
         InputMode::Search => handle_key_search(app, key),
         InputMode::Normal | InputMode::Command => handle_key_normal(app, key),
@@ -293,6 +298,10 @@ fn handle_key_normal(app: &mut App, key: KeyEvent) -> Option<String> {
     app.pending_g = false;
 
     match key.code {
+        KeyCode::Char('?') => {
+            app.show_help = true;
+            None
+        }
         KeyCode::Char('q') => Some("quit".to_string()),
         KeyCode::Char('/') => {
             app.input_mode = InputMode::Search;

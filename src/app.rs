@@ -84,6 +84,7 @@ pub struct App {
     pub visible_rows: usize,
     // For g/G double-key detection
     pub pending_g: bool,
+    pub show_help: bool,
 }
 
 impl App {
@@ -108,6 +109,7 @@ impl App {
             songs_loaded: false,
             visible_rows: 20,
             pending_g: false,
+            show_help: false,
         }
     }
 

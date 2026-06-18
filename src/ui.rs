@@ -2,7 +2,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Gauge, List, ListItem, Paragraph},
+    widgets::{Block, Borders, Clear, Gauge, List, ListItem, Paragraph},
     Frame,
 };
 
@@ -23,6 +23,10 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     draw_now_playing(f, app, chunks[0]);
     draw_main(f, app, chunks[1]);
     draw_search_bar(f, app, chunks[2]);
+
+    if app.show_help {
+        draw_help(f, area);
+    }
 }
 
 fn draw_now_playing(f: &mut Frame, app: &App, area: Rect) {
@@ -266,4 +270,99 @@ fn draw_search_bar(f: &mut Frame, app: &App, area: Rect) {
             .block(Block::default().borders(Borders::ALL)),
         chunks[1],
     );
+}
+
+fn draw_help(f: &mut Frame, area: Rect) {
+    const SECTIONS: &[(&str, &[(&str, &str)])] = &[
+        (
+            "Navigation",
+            &[
+                ("j / ↓",       "Move down"),
+                ("k / ↑",       "Move up"),
+                ("Ctrl+d",       "Half page down"),
+                ("Ctrl+u",       "Half page up"),
+                ("PgDn",         "Page down"),
+                ("PgUp",         "Page up"),
+                ("gg",           "Jump to top"),
+                ("G",            "Jump to bottom"),
+            ],
+        ),
+        (
+            "Search & Scope",
+            &[
+                ("/",            "New search"),
+                ("Esc",          "Cancel search"),
+                ("F1",           "Scope: All"),
+                ("F2",           "Scope: Artists"),
+                ("F3",           "Scope: Albums"),
+                ("F4",           "Scope: Songs"),
+                ("Ctrl+n",       "Next scope"),
+                ("Ctrl+p",       "Previous scope"),
+            ],
+        ),
+        (
+            "Playback",
+            &[
+                ("Enter",        "Play (clears queue)"),
+                ("a",            "Add to queue"),
+                ("F5",           "Add to queue (in search)"),
+                ("Space",        "Pause / resume"),
+                ("s",            "Stop"),
+                ("n",            "Next track"),
+                ("p",            "Previous track"),
+                ("+  /  =",      "Volume up 5%"),
+                ("-",            "Volume down 5%"),
+            ],
+        ),
+        (
+            "General",
+            &[
+                ("?",            "Toggle this help"),
+                ("q",            "Quit"),
+            ],
+        ),
+    ];
+
+    // Build lines
+    let key_style   = Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD);
+    let val_style   = Style::default().fg(Color::White);
+    let head_style  = Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD | Modifier::UNDERLINED);
+
+    let mut lines: Vec<Line> = vec![Line::from("")];
+    for (heading, bindings) in SECTIONS {
+        lines.push(Line::from(Span::styled(format!("  {heading}"), head_style)));
+        for (key, desc) in *bindings {
+            lines.push(Line::from(vec![
+                Span::styled(format!("  {key:<14}", key = key), key_style),
+                Span::styled(format!(" {desc}"), val_style),
+            ]));
+        }
+        lines.push(Line::from(""));
+    }
+
+    let content_h = lines.len() as u16 + 2; // +2 for block border
+    let content_w = 42u16;
+
+    let popup_area = center_rect(content_w, content_h, area);
+
+    f.render_widget(Clear, popup_area);
+    f.render_widget(
+        Paragraph::new(lines).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(Span::styled(" Help  (? to close) ", Style::default().fg(Color::Cyan))),
+        ),
+        popup_area,
+    );
+}
+
+fn center_rect(width: u16, height: u16, area: Rect) -> Rect {
+    let x = area.x + area.width.saturating_sub(width) / 2;
+    let y = area.y + area.height.saturating_sub(height) / 2;
+    Rect {
+        x,
+        y,
+        width: width.min(area.width),
+        height: height.min(area.height),
+    }
 }
