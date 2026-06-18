@@ -7,7 +7,7 @@ use anyhow::Result;
 use app::{App, InputMode, SearchScope};
 use config::Config;
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent},
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -107,8 +107,8 @@ async fn main() -> Result<()> {
     while !quit {
         // Draw
         {
-            let app = app.lock().unwrap();
-            terminal.draw(|f| ui::draw(f, &app))?;
+            let mut app = app.lock().unwrap();
+            terminal.draw(|f| ui::draw(f, &mut app))?;
         }
 
         // Handle events
@@ -203,11 +203,19 @@ fn handle_key_search(app: &mut App, key: KeyEvent) -> Option<String> {
             None
         }
         KeyCode::Down => {
-            app.move_down(20);
+            app.move_down(app.visible_rows);
             None
         }
         KeyCode::Up => {
-            app.move_up(20);
+            app.move_up(app.visible_rows);
+            None
+        }
+        KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            app.half_page_down();
+            None
+        }
+        KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            app.half_page_up();
             None
         }
         KeyCode::F(1) => {
@@ -247,14 +255,23 @@ fn handle_key_normal(app: &mut App, key: KeyEvent) -> Option<String> {
         KeyCode::Char('q') => Some("quit".to_string()),
         KeyCode::Char('/') => {
             app.input_mode = InputMode::Search;
+            app.clear_search();
             None
         }
         KeyCode::Char('j') | KeyCode::Down => {
-            app.move_down(20);
+            app.move_down(app.visible_rows);
             None
         }
         KeyCode::Char('k') | KeyCode::Up => {
-            app.move_up(20);
+            app.move_up(app.visible_rows);
+            None
+        }
+        KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            app.half_page_down();
+            None
+        }
+        KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            app.half_page_up();
             None
         }
         KeyCode::Char('G') => {

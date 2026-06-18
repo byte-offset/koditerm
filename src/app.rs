@@ -78,6 +78,7 @@ pub struct App {
     pub status_message: Option<String>,
     pub loading: bool,
     pub library_loaded: bool,
+    pub visible_rows: usize,
     // For g/G double-key detection
     pub pending_g: bool,
 }
@@ -99,6 +100,7 @@ impl App {
             status_message: Some("Loading library…".to_string()),
             loading: true,
             library_loaded: false,
+            visible_rows: 20,
             pending_g: false,
         }
     }
@@ -130,7 +132,7 @@ impl App {
         if self.selected >= self.filtered_items.len() {
             self.selected = self.filtered_items.len().saturating_sub(1);
         }
-        self.clamp_offset(20);
+        self.clamp_offset(self.visible_rows);
     }
 
     pub fn move_down(&mut self, visible_rows: usize) {
@@ -150,6 +152,21 @@ impl App {
         self.clamp_offset(visible_rows);
     }
 
+    pub fn half_page_down(&mut self) {
+        if self.filtered_items.is_empty() {
+            return;
+        }
+        let half = (self.visible_rows / 2).max(1);
+        self.selected = (self.selected + half).min(self.filtered_items.len() - 1);
+        self.clamp_offset(self.visible_rows);
+    }
+
+    pub fn half_page_up(&mut self) {
+        let half = (self.visible_rows / 2).max(1);
+        self.selected = self.selected.saturating_sub(half);
+        self.clamp_offset(self.visible_rows);
+    }
+
     pub fn go_top(&mut self) {
         self.selected = 0;
         self.list_offset = 0;
@@ -157,7 +174,7 @@ impl App {
 
     pub fn go_bottom(&mut self) {
         self.selected = self.filtered_items.len().saturating_sub(1);
-        self.clamp_offset(20);
+        self.clamp_offset(self.visible_rows);
     }
 
     fn clamp_offset(&mut self, visible_rows: usize) {
@@ -204,77 +221,45 @@ impl App {
     }
 }
 
-fn fuzzy_score(haystack: &str, needle: &str) -> Option<i64> {
-    if needle.is_empty() {
-        return Some(0);
-    }
-    let h = haystack.to_lowercase();
-    let n = needle.to_lowercase();
-    // Simple subsequence-based fuzzy match
-    let mut hi = h.chars().peekable();
-    let mut score: i64 = 0;
-    let mut last_match = 0usize;
-    for nc in n.chars() {
-        let mut found = false;
-        let mut pos = last_match;
-        while let Some(hc) = hi.next() {
-            pos += 1;
-            if hc == nc {
-                score -= pos as i64 - last_match as i64; // penalize gaps
-                last_match = pos;
-                found = true;
-                break;
-            }
-        }
-        if !found {
-            return None;
-        }
-    }
-    Some(score)
+fn matches(haystack: &str, needle: &str) -> bool {
+    haystack.to_lowercase().contains(&needle.to_lowercase())
 }
 
 fn fuzzy_filter_artists(artists: &[Artist], q: &str) -> Vec<LibraryItem> {
-    if q.is_empty() {
-        return artists.iter().cloned().map(LibraryItem::Artist).collect();
-    }
-    let mut scored: Vec<_> = artists
+    artists
         .iter()
-        .filter_map(|a| {
-            fuzzy_score(&a.label, q).map(|s| (s, LibraryItem::Artist(a.clone())))
-        })
-        .collect();
-    scored.sort_by_key(|(s, _)| *s);
-    scored.into_iter().map(|(_, item)| item).collect()
+        .filter(|a| q.is_empty() || matches(&a.label, q))
+        .cloned()
+        .map(LibraryItem::Artist)
+        .collect()
 }
 
 fn fuzzy_filter_albums(albums: &[Album], q: &str) -> Vec<LibraryItem> {
-    if q.is_empty() {
-        return albums.iter().cloned().map(LibraryItem::Album).collect();
-    }
-    let mut scored: Vec<_> = albums
+    albums
         .iter()
-        .filter_map(|a| {
-            let artist_str = a.artist.join(" ");
-            let combined = format!("{} {}", a.label, artist_str);
-            fuzzy_score(&combined, q).map(|s| (s, LibraryItem::Album(a.clone())))
+        .filter(|a| {
+            if q.is_empty() {
+                return true;
+            }
+            let combined = format!("{} {}", a.label, a.artist.join(" "));
+            matches(&combined, q)
         })
-        .collect();
-    scored.sort_by_key(|(s, _)| *s);
-    scored.into_iter().map(|(_, item)| item).collect()
+        .cloned()
+        .map(LibraryItem::Album)
+        .collect()
 }
 
 fn fuzzy_filter_songs(songs: &[Song], q: &str) -> Vec<LibraryItem> {
-    if q.is_empty() {
-        return songs.iter().cloned().map(LibraryItem::Song).collect();
-    }
-    let mut scored: Vec<_> = songs
+    songs
         .iter()
-        .filter_map(|s| {
-            let artist_str = s.artist.join(" ");
-            let combined = format!("{} {} {}", s.label, artist_str, s.album);
-            fuzzy_score(&combined, q).map(|sc| (sc, LibraryItem::Song(s.clone())))
+        .filter(|s| {
+            if q.is_empty() {
+                return true;
+            }
+            let combined = format!("{} {} {}", s.label, s.artist.join(" "), s.album);
+            matches(&combined, q)
         })
-        .collect();
-    scored.sort_by_key(|(s, _)| *s);
-    scored.into_iter().map(|(_, item)| item).collect()
+        .cloned()
+        .map(LibraryItem::Song)
+        .collect()
 }

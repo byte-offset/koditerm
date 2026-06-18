@@ -9,7 +9,7 @@ use ratatui::{
 use crate::app::{App, InputMode, LibraryItem, SearchScope};
 use crate::kodi::format_duration;
 
-pub fn draw(f: &mut Frame, app: &App) {
+pub fn draw(f: &mut Frame, app: &mut App) {
     let area = f.area();
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -92,7 +92,7 @@ fn draw_now_playing(f: &mut Frame, app: &App, area: Rect) {
     }
 }
 
-fn draw_main(f: &mut Frame, app: &App, area: Rect) {
+fn draw_main(f: &mut Frame, app: &mut App, area: Rect) {
     let scope_labels = [
         (SearchScope::All, "All [F1]"),
         (SearchScope::Artists, "Artists [F2]"),
@@ -120,6 +120,7 @@ fn draw_main(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(block, area);
 
     let visible_rows = inner.height as usize;
+    app.visible_rows = visible_rows;
 
     if app.filtered_items.is_empty() {
         let msg = if app.loading {
