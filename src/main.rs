@@ -23,7 +23,9 @@ use tokio::sync::mpsc;
 enum AppEvent {
     Key(KeyEvent),
     Tick,
-    LibraryLoaded(Vec<kodi::Artist>, Vec<kodi::Album>, Vec<kodi::Song>),
+    ArtistsLoaded(Vec<kodi::Artist>),
+    AlbumsLoaded(Vec<kodi::Album>),
+    SongsLoaded(Vec<kodi::Song>),
     StatusUpdate(kodi::PlayerStatus),
     Error(String),
 }
@@ -55,19 +57,30 @@ async fn main() -> Result<()> {
     let tx_key = tx.clone();
     let tx_tick = tx.clone();
 
-    // Load library in background
+    // Load each library type independently so the UI can show results as they arrive
+    let tx_artists = tx_lib.clone();
+    let tx_albums = tx_lib.clone();
+    let tx_songs = tx_lib.clone();
+    let kodi_artists = Arc::clone(&kodi_ref);
+    let kodi_albums = Arc::clone(&kodi_ref);
+    let kodi_songs = Arc::clone(&kodi_ref);
+
     tokio::spawn(async move {
-        match tokio::join!(
-            kodi_ref.get_artists(),
-            kodi_ref.get_albums(),
-            kodi_ref.get_songs()
-        ) {
-            (Ok(artists), Ok(albums), Ok(songs)) => {
-                let _ = tx_lib.send(AppEvent::LibraryLoaded(artists, albums, songs));
-            }
-            _ => {
-                let _ = tx_lib.send(AppEvent::Error("Failed to load library".to_string()));
-            }
+        match kodi_artists.get_artists().await {
+            Ok(a) => { let _ = tx_artists.send(AppEvent::ArtistsLoaded(a)); }
+            Err(_) => { let _ = tx_artists.send(AppEvent::Error("Failed to load artists".to_string())); }
+        }
+    });
+    tokio::spawn(async move {
+        match kodi_albums.get_albums().await {
+            Ok(a) => { let _ = tx_albums.send(AppEvent::AlbumsLoaded(a)); }
+            Err(_) => { let _ = tx_albums.send(AppEvent::Error("Failed to load albums".to_string())); }
+        }
+    });
+    tokio::spawn(async move {
+        match kodi_songs.get_songs().await {
+            Ok(s) => { let _ = tx_songs.send(AppEvent::SongsLoaded(s)); }
+            Err(_) => { let _ = tx_songs.send(AppEvent::Error("Failed to load songs".to_string())); }
         }
     });
 
@@ -114,9 +127,17 @@ async fn main() -> Result<()> {
         // Handle events
         for _ in 0..20 {
             match rx.try_recv() {
-                Ok(AppEvent::LibraryLoaded(artists, albums, songs)) => {
+                Ok(AppEvent::ArtistsLoaded(artists)) => {
                     let mut app = app.lock().unwrap();
-                    app.set_library(artists, albums, songs);
+                    app.set_artists(artists);
+                }
+                Ok(AppEvent::AlbumsLoaded(albums)) => {
+                    let mut app = app.lock().unwrap();
+                    app.set_albums(albums);
+                }
+                Ok(AppEvent::SongsLoaded(songs)) => {
+                    let mut app = app.lock().unwrap();
+                    app.set_songs(songs);
                 }
                 Ok(AppEvent::StatusUpdate(s)) => {
                     let mut app = app.lock().unwrap();
@@ -218,6 +239,14 @@ fn handle_key_search(app: &mut App, key: KeyEvent) -> Option<String> {
             app.half_page_up();
             None
         }
+        KeyCode::PageDown => {
+            app.page_down();
+            None
+        }
+        KeyCode::PageUp => {
+            app.page_up();
+            None
+        }
         KeyCode::F(1) => {
             app.set_scope(SearchScope::All);
             None
@@ -272,6 +301,14 @@ fn handle_key_normal(app: &mut App, key: KeyEvent) -> Option<String> {
         }
         KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
             app.half_page_up();
+            None
+        }
+        KeyCode::PageDown => {
+            app.page_down();
+            None
+        }
+        KeyCode::PageUp => {
+            app.page_up();
             None
         }
         KeyCode::Char('G') => {

@@ -78,6 +78,9 @@ pub struct App {
     pub status_message: Option<String>,
     pub loading: bool,
     pub library_loaded: bool,
+    pub artists_loaded: bool,
+    pub albums_loaded: bool,
+    pub songs_loaded: bool,
     pub visible_rows: usize,
     // For g/G double-key detection
     pub pending_g: bool,
@@ -100,19 +103,52 @@ impl App {
             status_message: Some("Loading library…".to_string()),
             loading: true,
             library_loaded: false,
+            artists_loaded: false,
+            albums_loaded: false,
+            songs_loaded: false,
             visible_rows: 20,
             pending_g: false,
         }
     }
 
-    pub fn set_library(&mut self, artists: Vec<Artist>, albums: Vec<Album>, songs: Vec<Song>) {
+    pub fn set_artists(&mut self, artists: Vec<Artist>) {
         self.all_artists = artists;
-        self.all_albums = albums;
-        self.all_songs = songs;
-        self.library_loaded = true;
-        self.loading = false;
-        self.status_message = None;
+        self.artists_loaded = true;
+        self.update_loading_state();
         self.apply_filter();
+    }
+
+    pub fn set_albums(&mut self, albums: Vec<Album>) {
+        self.all_albums = albums;
+        self.albums_loaded = true;
+        self.update_loading_state();
+        self.apply_filter();
+    }
+
+    pub fn set_songs(&mut self, songs: Vec<Song>) {
+        self.all_songs = songs;
+        self.songs_loaded = true;
+        self.update_loading_state();
+        self.apply_filter();
+    }
+
+    fn update_loading_state(&mut self) {
+        let pending: Vec<&str> = [
+            (!self.artists_loaded).then_some("artists"),
+            (!self.albums_loaded).then_some("albums"),
+            (!self.songs_loaded).then_some("songs"),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+
+        if pending.is_empty() {
+            self.loading = false;
+            self.library_loaded = true;
+            self.status_message = None;
+        } else {
+            self.status_message = Some(format!("Loading {}…", pending.join(", ")));
+        }
     }
 
     pub fn apply_filter(&mut self) {
@@ -164,6 +200,19 @@ impl App {
     pub fn half_page_up(&mut self) {
         let half = (self.visible_rows / 2).max(1);
         self.selected = self.selected.saturating_sub(half);
+        self.clamp_offset(self.visible_rows);
+    }
+
+    pub fn page_down(&mut self) {
+        if self.filtered_items.is_empty() {
+            return;
+        }
+        self.selected = (self.selected + self.visible_rows).min(self.filtered_items.len() - 1);
+        self.clamp_offset(self.visible_rows);
+    }
+
+    pub fn page_up(&mut self) {
+        self.selected = self.selected.saturating_sub(self.visible_rows);
         self.clamp_offset(self.visible_rows);
     }
 
