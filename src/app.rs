@@ -106,6 +106,7 @@ pub struct App {
     pub local_fetching: bool,
     pub local_volume: u32,
     pub local_position: u32,
+    pub pending_count: String,
 }
 
 impl App {
@@ -141,6 +142,7 @@ impl App {
             local_fetching: false,
             local_volume: 100,
             local_position: 0,
+            pending_count: String::new(),
         }
     }
 
@@ -240,19 +242,23 @@ impl App {
     }
 
     pub fn move_down(&mut self, visible_rows: usize) {
-        if self.filtered_items.is_empty() {
-            return;
-        }
-        if self.selected + 1 < self.filtered_items.len() {
-            self.selected += 1;
-        }
-        self.clamp_offset(visible_rows);
+        self.move_down_by(1, visible_rows);
     }
 
     pub fn move_up(&mut self, visible_rows: usize) {
-        if self.selected > 0 {
-            self.selected -= 1;
+        self.move_up_by(1, visible_rows);
+    }
+
+    pub fn move_down_by(&mut self, n: usize, visible_rows: usize) {
+        if self.filtered_items.is_empty() {
+            return;
         }
+        self.selected = (self.selected + n).min(self.filtered_items.len() - 1);
+        self.clamp_offset(visible_rows);
+    }
+
+    pub fn move_up_by(&mut self, n: usize, visible_rows: usize) {
+        self.selected = self.selected.saturating_sub(n);
         self.clamp_offset(visible_rows);
     }
 

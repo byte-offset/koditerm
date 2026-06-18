@@ -225,6 +225,14 @@ fn draw_library(f: &mut Frame, app: &mut App, area: Rect) {
         .map(|(i, item)| {
             let global_idx = i + app.list_offset;
             let selected = global_idx == app.selected;
+            let dist = (global_idx as i64 - app.selected as i64).unsigned_abs() as usize;
+
+            let num_style = if selected {
+                Style::default().fg(Color::DarkGray).bg(Color::White)
+            } else {
+                Style::default().fg(Color::DarkGray)
+            };
+            let num_span = Span::styled(format!("{:>3} ", dist), num_style);
 
             let type_tag = match item {
                 LibraryItem::Artist(_) => Span::styled(
@@ -278,7 +286,7 @@ fn draw_library(f: &mut Frame, app: &mut App, area: Rect) {
                 Span::raw("")
             };
 
-            ListItem::new(Line::from(vec![type_tag, label, sub_span, dur_span]))
+            ListItem::new(Line::from(vec![num_span, type_tag, label, sub_span, dur_span]))
         })
         .collect();
 
@@ -321,7 +329,10 @@ fn draw_queue(f: &mut Frame, app: &App, area: Rect) {
         .saturating_sub(visible / 2)
         .min(queue.len().saturating_sub(visible));
 
-    let max_label = inner.width.saturating_sub(3) as usize;
+    // prefix: "  3 " (4 chars) + "▶ " or "  " (2 chars) = 6 chars total
+    let max_label = inner.width.saturating_sub(6) as usize;
+    let num_style = Style::default().fg(Color::DarkGray);
+
     let items: Vec<ListItem> = queue
         .iter()
         .enumerate()
@@ -329,17 +340,27 @@ fn draw_queue(f: &mut Frame, app: &App, area: Rect) {
         .take(visible)
         .map(|(i, song)| {
             let playing = has_current && i == current_pos;
-            let (prefix, style) = if playing {
+            let dist = (i as i64 - current_pos as i64).unsigned_abs() as usize;
+            let num_str = if has_current {
+                format!("{:>3} ", dist)
+            } else {
+                format!("{:>3} ", i + 1)
+            };
+            let (indicator, song_style) = if playing {
                 ("▶ ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
             } else {
                 ("  ", Style::default().fg(Color::White))
             };
             let label = if song.label.len() > max_label {
-                format!("{prefix}{}…", &song.label[..max_label.saturating_sub(1)])
+                format!("{}…", &song.label[..max_label.saturating_sub(1)])
             } else {
-                format!("{prefix}{}", song.label)
+                song.label.clone()
             };
-            ListItem::new(Span::styled(label, style))
+            ListItem::new(Line::from(vec![
+                Span::styled(num_str, num_style),
+                Span::styled(indicator, song_style),
+                Span::styled(label, song_style),
+            ]))
         })
         .collect();
 
@@ -366,14 +387,19 @@ fn draw_search_bar(f: &mut Frame, app: &App, area: Rect) {
             )
         }
         InputMode::Normal => {
-            let msg = app
+            let base = app
                 .status_message
                 .clone()
                 .unwrap_or_else(|| format!("{} items", app.filtered_items.len()));
+            let msg = if app.pending_count.is_empty() {
+                base
+            } else {
+                format!("[{}] {}", app.pending_count, base)
+            };
             (
                 " koditerm ".to_string(),
                 msg,
-                " /search  j/k nav  gg/G top/bot  Enter play  Space pause  n/p next/prev  +/- vol  q quit ".to_string(),
+                " /search  j/k nav  gg/G top/bot  Enter play  Space pause  n/p skip  +/- vol  q quit ".to_string(),
             )
         }
         InputMode::Command => (

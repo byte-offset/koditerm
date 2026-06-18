@@ -399,6 +399,40 @@ async fn main() -> Result<()> {
                                     }
                                 });
                             }
+                        } else if a.starts_with("local_skip_fwd:") || a.starts_with("local_skip_bck:") {
+                            let n: usize = a.splitn(2, ':').nth(1).unwrap_or("1").parse().unwrap_or(1);
+                            let forward = a.starts_with("local_skip_fwd:");
+                            let song = {
+                                let mut app = app.lock().unwrap();
+                                if app.local_queue.is_empty() {
+                                    None
+                                } else {
+                                    let new_pos = if forward {
+                                        (app.local_queue_pos + n).min(app.local_queue.len() - 1)
+                                    } else {
+                                        app.local_queue_pos.saturating_sub(n)
+                                    };
+                                    app.local_queue_pos = new_pos;
+                                    let s = app.local_queue[new_pos].clone();
+                                    app.local_current_song = Some(s.clone());
+                                    app.local_fetching = true;
+                                    app.local_position = 0;
+                                    Some(s)
+                                }
+                            };
+                            if let Some(song) = song {
+                                if let Some(ref mut lp) = local_player {
+                                    lp.stop();
+                                }
+                                let kodi = Arc::clone(&kodi_ref);
+                                let tx = tx.clone();
+                                tokio::spawn(async move {
+                                    match fetch_local_bytes(&kodi, song.songid).await {
+                                        Ok(bytes) => { let _ = tx.send(AppEvent::LocalBytesReady { bytes, song, clear: true }); }
+                                        Err(e) => { let _ = tx.send(AppEvent::Error(format!("Skip: {e}"))); }
+                                    }
+                                });
+                            }
                         } else if a.starts_with("local_play_album:")
                             || a.starts_with("local_play_artist:")
                             || a.starts_with("local_queue_album:")
@@ -557,14 +591,32 @@ fn handle_key_normal(app: &mut App, key: KeyEvent) -> Option<String> {
     if key.code == KeyCode::Char('g') {
         if app.pending_g {
             app.pending_g = false;
+            app.pending_count.clear();
             app.go_top();
             return None;
         } else {
             app.pending_g = true;
+            app.pending_count.clear();
             return None;
         }
     }
     app.pending_g = false;
+
+    // Accumulate numeric count prefix (digits only; no modifier)
+    if let KeyCode::Char(c) = key.code {
+        if c.is_ascii_digit() && key.modifiers.is_empty() {
+            app.pending_count.push(c);
+            return None;
+        }
+    }
+
+    // Consume and clear the accumulated count for the next action
+    let count: usize = if app.pending_count.is_empty() {
+        1
+    } else {
+        app.pending_count.parse().unwrap_or(1)
+    };
+    app.pending_count.clear();
 
     match key.code {
         KeyCode::Char('?') => {
@@ -578,11 +630,11 @@ fn handle_key_normal(app: &mut App, key: KeyEvent) -> Option<String> {
             None
         }
         KeyCode::Char('j') | KeyCode::Down => {
-            app.move_down(app.visible_rows);
+            app.move_down_by(count, app.visible_rows);
             None
         }
         KeyCode::Char('k') | KeyCode::Up => {
-            app.move_up(app.visible_rows);
+            app.move_up_by(count, app.visible_rows);
             None
         }
         KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
@@ -629,8 +681,32 @@ fn handle_key_normal(app: &mut App, key: KeyEvent) -> Option<String> {
                 play_selected(app)
             }
         }
-        KeyCode::Char('n') => app.status.player_id.map(|pid| format!("next:{pid}")),
-        KeyCode::Char('p') => app.status.player_id.map(|pid| format!("prev:{pid}")),
+        KeyCode::Char('n') => {
+            if app.backend == PlaybackBackend::Local {
+                if app.local_queue.is_empty() { None } else { Some(format!("local_skip_fwd:{count}")) }
+            } else if let Some(pid) = app.status.player_id {
+                if count <= 1 {
+                    Some(format!("next:{pid}"))
+                } else {
+                    Some(format!("skip_fwd:{count}"))
+                }
+            } else {
+                None
+            }
+        }
+        KeyCode::Char('p') => {
+            if app.backend == PlaybackBackend::Local {
+                if app.local_queue.is_empty() { None } else { Some(format!("local_skip_bck:{count}")) }
+            } else if let Some(pid) = app.status.player_id {
+                if count <= 1 {
+                    Some(format!("prev:{pid}"))
+                } else {
+                    Some(format!("skip_bck:{count}"))
+                }
+            } else {
+                None
+            }
+        }
         KeyCode::Char('s') => {
             if app.backend == PlaybackBackend::Local {
                 Some("local_stop".to_string())
@@ -731,7 +807,7 @@ async fn fetch_local_bytes(kodi: &kodi::KodiClient, song_id: u32) -> anyhow::Res
 async fn dispatch_action(
     kodi: &KodiClient,
     action: &str,
-    _status: &kodi::PlayerStatus,
+    status: &kodi::PlayerStatus,
 ) -> Result<()> {
     let parts: Vec<&str> = action.splitn(2, ':').collect();
     match parts[0] {
@@ -746,6 +822,17 @@ async fn dispatch_action(
         "next" => kodi.next_track(parts[1].parse()?).await?,
         "prev" => kodi.prev_track(parts[1].parse()?).await?,
         "volume" => kodi.set_volume(parts[1].parse()?).await?,
+        "skip_fwd" | "skip_bck" => {
+            if let Some(pid) = status.player_id {
+                let n: usize = parts[1].parse()?;
+                let new_pos = if parts[0] == "skip_fwd" {
+                    status.playlist_pos + n
+                } else {
+                    status.playlist_pos.saturating_sub(n)
+                };
+                kodi.goto_position(pid, new_pos).await?
+            }
+        }
         _ => {}
     }
     Ok(())

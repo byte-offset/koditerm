@@ -251,6 +251,12 @@ impl KodiClient {
         Ok(())
     }
 
+    pub async fn goto_position(&self, player_id: i64, pos: usize) -> Result<()> {
+        self.call("Player.GoTo", json!({ "playerid": player_id, "to": pos }))
+            .await?;
+        Ok(())
+    }
+
     pub async fn next_track(&self, player_id: i64) -> Result<()> {
         self.call(
             "Player.GoTo",
