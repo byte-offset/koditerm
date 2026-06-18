@@ -50,6 +50,7 @@ fn draw_now_playing(f: &mut Frame, app: &App, area: Rect) {
     if app.backend == PlaybackBackend::Local {
         if let Some(song) = &app.local_current_song {
             let play_icon = if app.local_paused { "⏸" } else { "▶" };
+            let vol_icon = if app.local_volume == 0 { "🔇" } else { "🔊" };
             let title_line = Line::from(vec![
                 Span::raw(format!("{play_icon} ")),
                 Span::styled(
@@ -57,12 +58,10 @@ fn draw_now_playing(f: &mut Frame, app: &App, area: Rect) {
                     Style::default().add_modifier(Modifier::BOLD).fg(Color::White),
                 ),
                 Span::raw("  "),
-                Span::styled(
-                    song.artist.join(", "),
-                    Style::default().fg(Color::Yellow),
-                ),
+                Span::styled(song.artist.join(", "), Style::default().fg(Color::Yellow)),
                 Span::raw("  —  "),
                 Span::styled(song.album.clone(), Style::default().fg(Color::DarkGray)),
+                Span::raw(format!("   {vol_icon}{:3}%", app.local_volume)),
             ]);
             f.render_widget(Paragraph::new(title_line), inner);
         } else {

@@ -336,6 +336,12 @@ impl KodiClient {
             return Err(anyhow!("VFS fetch failed: HTTP {}", resp.status()));
         }
         let bytes = resp.bytes().await?;
+        if bytes.len() < 512 {
+            return Err(anyhow!(
+                "VFS response too small ({} bytes) — path may be wrong",
+                bytes.len()
+            ));
+        }
         Ok(bytes.to_vec())
     }
 

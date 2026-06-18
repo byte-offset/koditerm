@@ -104,6 +104,7 @@ pub struct App {
     pub local_current_song: Option<Song>,
     pub local_paused: bool,
     pub local_fetching: bool,
+    pub local_volume: u32,
 }
 
 impl App {
@@ -137,6 +138,7 @@ impl App {
             local_current_song: None,
             local_paused: false,
             local_fetching: false,
+            local_volume: 100,
         }
     }
 

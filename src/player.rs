@@ -23,6 +23,7 @@ impl LocalPlayer {
         let source = Decoder::new(Cursor::new(bytes))
             .map_err(|e| anyhow::anyhow!("decode error: {e}"))?;
         self.sink.append(source);
+        self.sink.play();
         Ok(())
     }
 
@@ -30,6 +31,7 @@ impl LocalPlayer {
         let source = Decoder::new(Cursor::new(bytes))
             .map_err(|e| anyhow::anyhow!("decode error: {e}"))?;
         self.sink.append(source);
+        self.sink.play();
         Ok(())
     }
 
@@ -45,6 +47,14 @@ impl LocalPlayer {
         self.sink = Sink::try_new(&self.handle)
             .map_err(|e| anyhow::anyhow!("audio sink error: {e}"))?;
         Ok(())
+    }
+
+    pub fn set_volume(&self, vol: f32) {
+        self.sink.set_volume(vol.clamp(0.0, 1.0));
+    }
+
+    pub fn volume(&self) -> f32 {
+        self.sink.volume()
     }
 
     pub fn is_paused(&self) -> bool {

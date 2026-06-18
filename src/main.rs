@@ -212,20 +212,25 @@ async fn main() -> Result<()> {
                 }
                 Ok(AppEvent::LocalBytesReady { bytes, song, clear }) => {
                     if let Some(ref mut lp) = local_player {
+                        let kb = bytes.len() / 1024;
                         let result = if clear { lp.play_bytes(bytes) } else { lp.queue_bytes(bytes) };
                         let mut app = app.lock().unwrap();
                         app.local_fetching = false;
                         match result {
                             Ok(()) => {
                                 if clear {
-                                    app.local_current_song = Some(song);
+                                    app.local_current_song = Some(song.clone());
                                     app.local_paused = false;
+                                    app.status_message = Some(format!(
+                                        "Playing locally: {} ({kb} KB)", song.label
+                                    ));
                                 } else if app.local_current_song.is_none() {
-                                    // First song queued — mark it as playing
                                     app.local_current_song = app.local_queue.first().cloned();
                                     app.local_queue_pos = 0;
+                                    app.status_message = Some(format!(
+                                        "Queued: {} ({kb} KB)", song.label
+                                    ));
                                 }
-                                app.status_message = None;
                             }
                             Err(e) => {
                                 app.status_message = Some(format!("Playback error: {e}"));
@@ -267,6 +272,12 @@ async fn main() -> Result<()> {
                                 app.lock().unwrap().status_message =
                                     Some("Remote playback mode".to_string());
                             }
+                        } else if a.starts_with("local_volume:") {
+                            let vol: u32 = a.splitn(2, ':').nth(1).unwrap_or("100").parse().unwrap_or(100);
+                            if let Some(ref lp) = local_player {
+                                lp.set_volume(vol as f32 / 100.0);
+                            }
+                            app.lock().unwrap().local_volume = vol;
                         } else if a == "local_toggle_pause" {
                             if let Some(ref lp) = local_player {
                                 lp.toggle_pause();
@@ -546,12 +557,22 @@ fn handle_key_normal(app: &mut App, key: KeyEvent) -> Option<String> {
             }
         }
         KeyCode::Char('+') | KeyCode::Char('=') => {
-            let vol = (app.status.volume + 5).min(100);
-            Some(format!("volume:{vol}"))
+            if app.backend == PlaybackBackend::Local {
+                let vol = (app.local_volume + 5).min(100);
+                Some(format!("local_volume:{vol}"))
+            } else {
+                let vol = (app.status.volume + 5).min(100);
+                Some(format!("volume:{vol}"))
+            }
         }
         KeyCode::Char('-') => {
-            let vol = app.status.volume.saturating_sub(5);
-            Some(format!("volume:{vol}"))
+            if app.backend == PlaybackBackend::Local {
+                let vol = app.local_volume.saturating_sub(5);
+                Some(format!("local_volume:{vol}"))
+            } else {
+                let vol = app.status.volume.saturating_sub(5);
+                Some(format!("volume:{vol}"))
+            }
         }
         KeyCode::F(1) => {
             app.set_scope(SearchScope::All);
