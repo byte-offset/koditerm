@@ -136,6 +136,7 @@ pub struct App {
     pub wander_fetching: bool,
     pub wander_cooldown: u8,
     pub wander_trail: Vec<WanderEntry>,
+    pub pending_q: bool,
 }
 
 impl App {
@@ -179,6 +180,7 @@ impl App {
             wander_fetching: false,
             wander_cooldown: 0,
             wander_trail: Vec::new(),
+            pending_q: false,
         }
     }
 

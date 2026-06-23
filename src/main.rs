@@ -650,6 +650,13 @@ fn handle_key(app: &mut App, key: KeyEvent) -> Option<String> {
         app.show_track_info = false;
         return None;
     }
+    if app.pending_q {
+        app.pending_q = false;
+        if matches!(key.code, KeyCode::Char('q') | KeyCode::Char('y') | KeyCode::Enter) {
+            return Some("quit".to_string());
+        }
+        return None;
+    }
     match &app.input_mode {
         InputMode::Search => handle_key_search(app, key),
         InputMode::Normal | InputMode::Command => handle_key_normal(app, key),
@@ -771,7 +778,10 @@ fn handle_key_normal(app: &mut App, key: KeyEvent) -> Option<String> {
             app.show_help = true;
             None
         }
-        KeyCode::Char('q') => Some("quit".to_string()),
+        KeyCode::Char('q') => {
+            app.pending_q = true;
+            None
+        }
         KeyCode::Char('/') => {
             app.input_mode = InputMode::Search;
             app.clear_search();

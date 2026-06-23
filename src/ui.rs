@@ -34,6 +34,9 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     if app.wander_mode {
         draw_wander_popup(f, app, area);
     }
+    if app.pending_q {
+        draw_quit_confirm(f, &app.theme, area);
+    }
 }
 
 fn draw_now_playing(f: &mut Frame, app: &App, area: Rect) {
@@ -700,6 +703,33 @@ fn draw_track_info(f: &mut Frame, app: &App, area: Rect) {
                     .title(Span::styled(" Track Info  (any key to close) ", Style::default().fg(t.accent))),
             )
             .wrap(ratatui::widgets::Wrap { trim: false }),
+        popup_area,
+    );
+}
+
+fn draw_quit_confirm(f: &mut Frame, theme: &Theme, area: Rect) {
+    let lines = vec![
+        Line::from(""),
+        Line::from(Span::styled("  Quit koditerm?", Style::default().fg(Color::White).add_modifier(Modifier::BOLD))),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("  q / y / Enter", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+            Span::styled("  quit", Style::default().fg(Color::White)),
+        ]),
+        Line::from(vec![
+            Span::styled("  any other key ", Style::default().fg(theme.dim)),
+            Span::styled(" cancel", Style::default().fg(theme.dim)),
+        ]),
+        Line::from(""),
+    ];
+    let popup_area = center_rect(32, lines.len() as u16 + 2, area);
+    f.render_widget(Clear, popup_area);
+    f.render_widget(
+        Paragraph::new(lines).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(theme.dim)),
+        ),
         popup_area,
     );
 }
