@@ -68,6 +68,7 @@ async fn main() -> Result<()> {
 
     let device_name = args.device.clone();
     let cfg = config::load()?;
+    let theme = cfg.theme.resolve();
     let (name, system) = config::resolve(&cfg, args.system.as_deref())?;
     let kodi = KodiClient::new(name, system.clone())?;
 
@@ -77,7 +78,7 @@ async fn main() -> Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let app = Arc::new(Mutex::new(App::new(kodi)));
+    let app = Arc::new(Mutex::new(App::new(kodi, theme)));
 
     let (tx, mut rx) = mpsc::unbounded_channel::<AppEvent>();
 
@@ -557,13 +558,13 @@ fn handle_key_search(app: &mut App, key: KeyEvent) -> Option<String> {
             app.clear_search();
             None
         }
-        KeyCode::Enter => {
-            app.input_mode = InputMode::Normal;
-            play_selected(app)
-        }
         KeyCode::Enter if key.modifiers.contains(KeyModifiers::ALT) => {
             // Queue without leaving search
             queue_selected(app)
+        }
+        KeyCode::Enter => {
+            app.input_mode = InputMode::Normal;
+            play_selected(app)
         }
         KeyCode::Tab => {
             app.toggle_search_mode();
@@ -708,8 +709,8 @@ fn handle_key_normal(app: &mut App, key: KeyEvent) -> Option<String> {
             None
         }
         KeyCode::Char('L') => Some("toggle_backend".to_string()),
-        KeyCode::Enter => play_selected(app),
         KeyCode::Enter if key.modifiers.contains(KeyModifiers::ALT) => queue_selected(app),
+        KeyCode::Enter => play_selected(app),
         KeyCode::Char(' ') => {
             if app.backend == PlaybackBackend::Local {
                 if app.local_current_song.is_some() {

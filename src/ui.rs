@@ -7,6 +7,7 @@ use ratatui::{
 };
 
 use crate::app::{App, InputMode, LibraryItem, PlaybackBackend, RepeatMode, SearchMode, SearchScope};
+use crate::config::Theme;
 use crate::kodi::format_duration;
 
 pub fn draw(f: &mut Frame, app: &mut App) {
@@ -25,7 +26,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     draw_search_bar(f, app, chunks[2]);
 
     if app.show_help {
-        draw_help(f, area);
+        draw_help(f, &app.theme, area);
     }
     if app.show_track_info {
         draw_track_info(f, app, area);
@@ -35,12 +36,13 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 fn draw_now_playing(f: &mut Frame, app: &App, area: Rect) {
     let status = &app.status;
 
+    let t = &app.theme;
     let backend_span = if app.backend == PlaybackBackend::Local {
         Span::styled(" LOCAL ", Style::default().fg(Color::Black).bg(Color::Yellow))
     } else {
-        Span::styled(" REMOTE ", Style::default().fg(Color::DarkGray))
+        Span::styled(" REMOTE ", Style::default().fg(t.dim))
     };
-    let repeat_style = Style::default().fg(Color::Gray);
+    let repeat_style = Style::default().fg(t.dim);
     let repeat_span = if app.backend == PlaybackBackend::Local {
         match app.repeat_mode {
             RepeatMode::Off => Span::raw(""),
@@ -57,7 +59,7 @@ fn draw_now_playing(f: &mut Frame, app: &App, area: Rect) {
     let block = Block::default()
         .borders(Borders::ALL)
         .title(Line::from(vec![
-            Span::styled(" Now Playing ", Style::default().fg(Color::Cyan)),
+            Span::styled(" Now Playing ", Style::default().fg(t.accent)),
             backend_span,
             repeat_span,
         ]));
@@ -76,9 +78,9 @@ fn draw_now_playing(f: &mut Frame, app: &App, area: Rect) {
                     Style::default().add_modifier(Modifier::BOLD).fg(Color::White),
                 ),
                 Span::raw("  "),
-                Span::styled(song.artist.join(", "), Style::default().fg(Color::Yellow)),
+                Span::styled(song.artist.join(", "), Style::default().fg(t.highlight)),
                 Span::raw("  —  "),
-                Span::styled(song.album.clone(), Style::default().fg(Color::DarkGray)),
+                Span::styled(song.album.clone(), Style::default().fg(t.dim)),
             ]);
 
             let pos = app.local_position;
@@ -104,7 +106,7 @@ fn draw_now_playing(f: &mut Frame, app: &App, area: Rect) {
                 .split(info_chunks[1]);
 
             let gauge = Gauge::default()
-                .gauge_style(Style::default().fg(Color::Yellow).bg(Color::DarkGray))
+                .gauge_style(Style::default().fg(t.highlight).bg(t.dim))
                 .ratio(ratio);
             f.render_widget(gauge, bar_chunks[0]);
             f.render_widget(
@@ -114,7 +116,7 @@ fn draw_now_playing(f: &mut Frame, app: &App, area: Rect) {
         } else {
             f.render_widget(
                 Paragraph::new("Local mode. ENTER to play, Alt+ENTER to queue.")
-                    .style(Style::default().fg(Color::DarkGray)),
+                    .style(Style::default().fg(t.dim)),
                 inner,
             );
         }
@@ -129,9 +131,9 @@ fn draw_now_playing(f: &mut Frame, app: &App, area: Rect) {
             Span::raw(format!("{play_icon} ")),
             Span::styled(&item.title, Style::default().add_modifier(Modifier::BOLD).fg(Color::White)),
             Span::raw("  "),
-            Span::styled(item.artist.join(", "), Style::default().fg(Color::Yellow)),
+            Span::styled(item.artist.join(", "), Style::default().fg(t.highlight)),
             Span::raw("  —  "),
-            Span::styled(&item.album, Style::default().fg(Color::DarkGray)),
+            Span::styled(&item.album, Style::default().fg(t.dim)),
         ]);
 
         let pos = status.position;
@@ -159,7 +161,7 @@ fn draw_now_playing(f: &mut Frame, app: &App, area: Rect) {
             .split(info_chunks[1]);
 
         let gauge = Gauge::default()
-            .gauge_style(Style::default().fg(Color::Cyan).bg(Color::DarkGray))
+            .gauge_style(Style::default().fg(t.accent).bg(t.dim))
             .ratio(ratio.clamp(0.0, 1.0));
         f.render_widget(gauge, bar_chunks[0]);
         f.render_widget(
@@ -173,7 +175,7 @@ fn draw_now_playing(f: &mut Frame, app: &App, area: Rect) {
             "Nothing playing. Press / to search, Enter to play."
         };
         f.render_widget(
-            Paragraph::new(msg).style(Style::default().fg(Color::DarkGray)),
+            Paragraph::new(msg).style(Style::default().fg(t.dim)),
             inner,
         );
     }
@@ -196,14 +198,15 @@ fn draw_library(f: &mut Frame, app: &mut App, area: Rect) {
         (SearchScope::Albums, "Albums [F3]"),
         (SearchScope::Songs, "Songs [F4]"),
     ];
+    let t = &app.theme;
     let title_spans: Vec<Span> = scope_labels
         .iter()
         .flat_map(|(scope, label)| {
             let active = *scope == app.search_scope;
             let style = if active {
-                Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
+                Style::default().fg(Color::Black).bg(t.accent).add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(Color::DarkGray)
+                Style::default().fg(t.dim)
             };
             vec![Span::styled(format!(" {label} "), style), Span::raw(" ")]
         })
@@ -228,7 +231,7 @@ fn draw_library(f: &mut Frame, app: &mut App, area: Rect) {
             "No matches."
         };
         f.render_widget(
-            Paragraph::new(msg).style(Style::default().fg(Color::DarkGray)),
+            Paragraph::new(msg).style(Style::default().fg(t.dim)),
             inner,
         );
         return;
@@ -246,33 +249,33 @@ fn draw_library(f: &mut Frame, app: &mut App, area: Rect) {
             let dist = (global_idx as i64 - app.selected as i64).unsigned_abs() as usize;
 
             let num_style = if selected {
-                Style::default().fg(Color::DarkGray).bg(Color::White)
+                Style::default().fg(t.dim).bg(t.selected_bg)
             } else {
-                Style::default().fg(Color::DarkGray)
+                Style::default().fg(t.dim)
             };
             let num_span = Span::styled(format!("{:>3} ", dist), num_style);
 
             let type_tag = match item {
                 LibraryItem::Artist(_) => Span::styled(
                     " ART ",
-                    Style::default().fg(Color::Black).bg(Color::Magenta),
+                    Style::default().fg(Color::Black).bg(t.tag_artist),
                 ),
                 LibraryItem::Album(_) => Span::styled(
                     " ALB ",
-                    Style::default().fg(Color::Black).bg(Color::Blue),
+                    Style::default().fg(Color::Black).bg(t.tag_album),
                 ),
                 LibraryItem::Song(_) => Span::styled(
                     " SNG ",
-                    Style::default().fg(Color::Black).bg(Color::Green),
+                    Style::default().fg(Color::Black).bg(t.tag_song),
                 ),
             };
 
             let label = Span::styled(
                 format!(" {} ", item.display_label()),
                 if selected {
-                    Style::default().fg(Color::Black).bg(Color::White).add_modifier(Modifier::BOLD)
+                    Style::default().fg(t.selected_fg).bg(t.selected_bg).add_modifier(Modifier::BOLD)
                 } else {
-                    Style::default().fg(Color::White)
+                    Style::default().fg(t.text)
                 },
             );
 
@@ -280,9 +283,9 @@ fn draw_library(f: &mut Frame, app: &mut App, area: Rect) {
             let sub_span = Span::styled(
                 format!(" {sub}"),
                 if selected {
-                    Style::default().fg(Color::DarkGray).bg(Color::White)
+                    Style::default().fg(t.dim).bg(t.selected_bg)
                 } else {
-                    Style::default().fg(Color::DarkGray)
+                    Style::default().fg(t.dim)
                 },
             );
 
@@ -292,9 +295,9 @@ fn draw_library(f: &mut Frame, app: &mut App, area: Rect) {
                     Span::styled(
                         format!(" {} ", format_duration(d)),
                         if selected {
-                            Style::default().fg(Color::DarkGray).bg(Color::White)
+                            Style::default().fg(t.dim).bg(t.selected_bg)
                         } else {
-                            Style::default().fg(Color::DarkGray)
+                            Style::default().fg(t.dim)
                         },
                     )
                 } else {
@@ -319,13 +322,14 @@ fn draw_queue(f: &mut Frame, app: &App, area: Rect) {
         (&app.remote_queue, app.status.playlist_pos, app.status.player_id.is_some())
     };
 
+    let t = &app.theme;
     let title = if queue.is_empty() {
-        Span::styled(" Queue ", Style::default().fg(Color::DarkGray))
+        Span::styled(" Queue ", Style::default().fg(t.dim))
     } else {
         let pos = if has_current { current_pos + 1 } else { 0 };
         Span::styled(
             format!(" Queue {}/{} ", pos, queue.len()),
-            Style::default().fg(Color::Yellow),
+            Style::default().fg(t.highlight),
         )
     };
     let block = Block::default().borders(Borders::ALL).title(title);
@@ -334,8 +338,8 @@ fn draw_queue(f: &mut Frame, app: &App, area: Rect) {
 
     if queue.is_empty() {
         f.render_widget(
-            Paragraph::new("Empty\n\nAdd songs\nwith 'a'")
-                .style(Style::default().fg(Color::DarkGray))
+            Paragraph::new("Empty\n\nAdd songs\nwith Alt+Enter")
+                .style(Style::default().fg(t.dim))
                 .alignment(Alignment::Center),
             inner,
         );
@@ -349,7 +353,7 @@ fn draw_queue(f: &mut Frame, app: &App, area: Rect) {
 
     // prefix: "  3 " (4 chars) + "▶ " or "  " (2 chars) = 6 chars total
     let max_label = inner.width.saturating_sub(6) as usize;
-    let num_style = Style::default().fg(Color::DarkGray);
+    let num_style = Style::default().fg(t.dim);
 
     let items: Vec<ListItem> = queue
         .iter()
@@ -365,7 +369,7 @@ fn draw_queue(f: &mut Frame, app: &App, area: Rect) {
                 format!("{:>3} ", i + 1)
             };
             let (indicator, song_style) = if playing {
-                ("▶ ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+                ("▶ ", Style::default().fg(t.accent).add_modifier(Modifier::BOLD))
             } else {
                 ("  ", Style::default().fg(Color::White))
             };
@@ -432,12 +436,13 @@ fn draw_search_bar(f: &mut Frame, app: &App, area: Rect) {
         .constraints([Constraint::Min(0), Constraint::Length(hint.len() as u16 + 2)])
         .split(area);
 
+    let t = &app.theme;
     let input_block = Block::default()
         .borders(Borders::ALL)
-        .title(Span::styled(title, Style::default().fg(Color::Cyan)));
+        .title(Span::styled(title, Style::default().fg(t.accent)));
 
     let input_style = if matches!(app.input_mode, InputMode::Search) {
-        Style::default().fg(Color::Yellow)
+        Style::default().fg(t.highlight)
     } else {
         Style::default().fg(Color::White)
     };
@@ -449,13 +454,13 @@ fn draw_search_bar(f: &mut Frame, app: &App, area: Rect) {
 
     f.render_widget(
         Paragraph::new(hint)
-            .style(Style::default().fg(Color::DarkGray))
+            .style(Style::default().fg(t.dim))
             .block(Block::default().borders(Borders::ALL)),
         chunks[1],
     );
 }
 
-fn draw_help(f: &mut Frame, area: Rect) {
+fn draw_help(f: &mut Frame, theme: &Theme, area: Rect) {
     type Section = (&'static str, &'static [(&'static str, &'static str)]);
 
     const LEFT: &[Section] = &[
@@ -516,9 +521,9 @@ fn draw_help(f: &mut Frame, area: Rect) {
         ),
     ];
 
-    let key_style  = Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD);
+    let key_style  = Style::default().fg(theme.accent).add_modifier(Modifier::BOLD);
     let val_style  = Style::default().fg(Color::White);
-    let head_style = Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD | Modifier::UNDERLINED);
+    let head_style = Style::default().fg(theme.highlight).add_modifier(Modifier::BOLD | Modifier::UNDERLINED);
 
     let build_lines = |sections: &[Section]| -> Vec<Line<'static>> {
         let mut lines: Vec<Line> = vec![Line::from("")];
@@ -548,7 +553,7 @@ fn draw_help(f: &mut Frame, area: Rect) {
     f.render_widget(
         Block::default()
             .borders(Borders::ALL)
-            .title(Span::styled(" Help  (? to close) ", Style::default().fg(Color::Cyan))),
+            .title(Span::styled(" Help  (? to close) ", Style::default().fg(theme.accent))),
         popup_area,
     );
 
@@ -574,7 +579,8 @@ fn draw_help(f: &mut Frame, area: Rect) {
 }
 
 fn draw_track_info(f: &mut Frame, app: &App, area: Rect) {
-    let label_style = Style::default().fg(Color::DarkGray);
+    let t = &app.theme;
+    let label_style = Style::default().fg(t.dim);
     let value_style = Style::default().fg(Color::White);
     let title_style = Style::default().fg(Color::White).add_modifier(Modifier::BOLD);
 
@@ -608,7 +614,7 @@ fn draw_track_info(f: &mut Frame, app: &App, area: Rect) {
             } else {
                 lines.push(Line::from(Span::styled(
                     "Nothing playing.",
-                    Style::default().fg(Color::DarkGray),
+                    Style::default().fg(t.dim),
                 )));
             }
         }
@@ -661,13 +667,13 @@ fn draw_track_info(f: &mut Frame, app: &App, area: Rect) {
                     lines.push(Line::from(""));
                     lines.push(Line::from(vec![
                         Span::styled("File         ", label_style),
-                        Span::styled(item.file.clone(), Style::default().fg(Color::DarkGray)),
+                        Span::styled(item.file.clone(), Style::default().fg(t.dim)),
                     ]));
                 }
             } else {
                 lines.push(Line::from(Span::styled(
                     "Nothing playing.",
-                    Style::default().fg(Color::DarkGray),
+                    Style::default().fg(t.dim),
                 )));
             }
         }
@@ -685,7 +691,7 @@ fn draw_track_info(f: &mut Frame, app: &App, area: Rect) {
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .title(Span::styled(" Track Info  (any key to close) ", Style::default().fg(Color::Cyan))),
+                    .title(Span::styled(" Track Info  (any key to close) ", Style::default().fg(t.accent))),
             )
             .wrap(ratatui::widgets::Wrap { trim: false }),
         popup_area,

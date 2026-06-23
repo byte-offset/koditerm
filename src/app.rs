@@ -1,3 +1,4 @@
+use crate::config::Theme;
 use crate::kodi::{Album, Artist, KodiClient, PlayerStatus, Song};
 use std::sync::Arc;
 
@@ -116,10 +117,11 @@ pub struct App {
     pub pending_count: String,
     pub repeat_mode: RepeatMode,
     pub show_track_info: bool,
+    pub theme: Theme,
 }
 
 impl App {
-    pub fn new(kodi: KodiClient) -> Self {
+    pub fn new(kodi: KodiClient, theme: Theme) -> Self {
         App {
             kodi: Arc::new(kodi),
             status: PlayerStatus::default(),
@@ -154,6 +156,7 @@ impl App {
             pending_count: String::new(),
             repeat_mode: RepeatMode::Off,
             show_track_info: false,
+            theme,
         }
     }
 
