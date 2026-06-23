@@ -179,9 +179,12 @@ pub fn config_path() -> PathBuf {
 pub fn load() -> Result<FullConfig> {
     let path = config_path();
     if !path.exists() {
-        let cfg = default_config();
-        save(&cfg)?;
-        return Ok(cfg);
+        let content = default_config_content();
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&path, &content)?;
+        return Ok(toml::from_str(&content).expect("default config is valid TOML"));
     }
     let content = std::fs::read_to_string(&path)
         .with_context(|| format!("reading config from {}", path.display()))?;
@@ -234,32 +237,27 @@ pub fn resolve<'a>(cfg: &'a FullConfig, name: Option<&str>) -> Result<(&'a str, 
     ))
 }
 
-fn default_config() -> FullConfig {
-    let mut systems = HashMap::new();
-    systems.insert(
-        "my-kodi".to_string(),
-        KodiSystem {
-            host: "192.168.1.1".to_string(),
-            port: 80,
-            username: "kodi".to_string(),
-            password: "kodi".to_string(),
-            default: true,
-        },
-    );
-    // Default theme: Tokyo Night Storm
-    let theme = ThemeConfig {
-        dim:             Some("#565f89".to_string()),
-        accent:          Some("#7aa2f7".to_string()),
-        highlight:       Some("#e0af68".to_string()),
-        text:            Some("#c0caf5".to_string()),
-        selected_fg:     Some("#1d202f".to_string()),
-        selected_bg:     Some("#7aa2f7".to_string()),
-        tag_artist:      Some("none".to_string()),
-        tag_album:       Some("none".to_string()),
-        tag_song:        Some("none".to_string()),
-        tag_artist_label: Some("👤".to_string()),
-        tag_album_label:  Some("💿".to_string()),
-        tag_song_label:   Some("♫".to_string()),
-    };
-    FullConfig { theme, systems }
+fn default_config_content() -> String {
+    r##"[theme]
+# Tokyo Night Storm
+dim        = "#565f89"   # subdued text: line numbers, subtitles, hint bar
+accent     = "#7aa2f7"   # titles, active scope tab, current queue item
+highlight  = "#e0af68"   # artist names in Now Playing, queue count
+text       = "#c0caf5"   # unselected item labels
+selected_fg = "#1d202f"  # text on selected row
+selected_bg = "#7aa2f7"  # selected row background
+tag_artist = "none"      # ART badge background
+tag_album  = "none"      # ALB badge background
+tag_song   = "none"      # SNG badge background
+tag_artist_label = "👤"  # default is "👤", nerdfont "  " is better
+tag_album_label  = "💿"  # default is "💿", nerdfont " 󰀥 " is better
+tag_song_label   = "♫"   # default is "♫", nerdfont "  " is better
+
+[my-kodi]
+host = "192.168.1.1"
+port = 80
+username = "kodi"
+password = "kodi"
+default = true
+"##.to_string()
 }
