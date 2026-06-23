@@ -6,7 +6,7 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::{App, InputMode, LibraryItem, PlaybackBackend, RepeatMode, SearchMode, SearchScope};
+use crate::app::{App, InputMode, LibraryItem, PlaybackBackend, RepeatMode, SearchMode, SearchScope, WanderConnection};
 use crate::config::Theme;
 use crate::kodi::format_duration;
 
@@ -30,6 +30,9 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     }
     if app.show_track_info {
         draw_track_info(f, app, area);
+    }
+    if app.wander_mode {
+        draw_wander_popup(f, app, area);
     }
 }
 
@@ -248,17 +251,26 @@ fn draw_library(f: &mut Frame, app: &mut App, area: Rect) {
             let selected = global_idx == app.selected;
             let dist = (global_idx as i64 - app.selected as i64).unsigned_abs() as usize;
 
-            let num_style = if selected {
-                Style::default().fg(t.dim).bg(t.selected_bg)
-            } else {
-                Style::default().fg(t.dim)
+            // Per-type background for the selected row
+            let type_bg = match item {
+                LibraryItem::Artist(_) => t.tag_artist,
+                LibraryItem::Album(_)  => t.tag_album,
+                LibraryItem::Song(_)   => t.tag_song,
             };
-            let num_span = Span::styled(format!("{:>3} ", dist), num_style);
+            let sel_bg: Option<Color> = if selected { Some(type_bg.unwrap_or(t.selected_bg)) } else { None };
 
-            let tag_style = |bg: Option<Color>| match bg {
-                Some(bg) => Style::default().fg(Color::Black).bg(bg),
-                None if selected => Style::default().fg(t.selected_fg).bg(t.selected_bg),
-                None => Style::default(),
+            let num_span = Span::styled(
+                format!("{:>3} ", dist),
+                match sel_bg {
+                    Some(bg) => Style::default().fg(t.dim).bg(bg),
+                    None => Style::default().fg(t.dim),
+                },
+            );
+
+            let tag_style = |bg: Option<Color>| match (sel_bg, bg) {
+                (Some(row_bg), _)    => Style::default().fg(t.selected_fg).bg(row_bg),
+                (None, Some(tag_bg)) => Style::default().fg(Color::Black).bg(tag_bg),
+                (None, None)         => Style::default(),
             };
             let type_tag = match item {
                 LibraryItem::Artist(_) => Span::styled(t.tag_artist_label.clone(), tag_style(t.tag_artist)),
@@ -268,20 +280,18 @@ fn draw_library(f: &mut Frame, app: &mut App, area: Rect) {
 
             let label = Span::styled(
                 format!(" {} ", item.display_label()),
-                if selected {
-                    Style::default().fg(t.selected_fg).bg(t.selected_bg).add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().fg(t.text)
+                match sel_bg {
+                    Some(bg) => Style::default().fg(t.selected_fg).bg(bg).add_modifier(Modifier::BOLD),
+                    None     => Style::default().fg(t.text),
                 },
             );
 
             let sub = item.subtitle();
             let sub_span = Span::styled(
                 format!(" {sub}"),
-                if selected {
-                    Style::default().fg(t.dim).bg(t.selected_bg)
-                } else {
-                    Style::default().fg(t.dim)
+                match sel_bg {
+                    Some(bg) => Style::default().fg(t.dim).bg(bg),
+                    None     => Style::default().fg(t.dim),
                 },
             );
 
@@ -290,10 +300,9 @@ fn draw_library(f: &mut Frame, app: &mut App, area: Rect) {
                 if let Some(d) = s.duration {
                     Span::styled(
                         format!(" {} ", format_duration(d)),
-                        if selected {
-                            Style::default().fg(t.dim).bg(t.selected_bg)
-                        } else {
-                            Style::default().fg(t.dim)
+                        match sel_bg {
+                            Some(bg) => Style::default().fg(t.dim).bg(bg),
+                            None     => Style::default().fg(t.dim),
                         },
                     )
                 } else {
@@ -417,7 +426,7 @@ fn draw_search_bar(f: &mut Frame, app: &App, area: Rect) {
             (
                 " koditerm ".to_string(),
                 msg,
-                " /: search  j/k: nav  gg/G: top/bot  ENTER: play  Alt+ENTER: queue  SPACE: pause  n/p: skip  r: repeat  i: info  +/-: vol  q: quit ".to_string(),
+                " /: search  j/k: nav  gg/G: top/bot  ENTER: play  Alt+ENTER: queue  SPACE: pause  n/p: skip  r: repeat  W: wander  i: info  +/-: vol  q: quit ".to_string(),
             )
         }
         InputMode::Command => (
@@ -510,6 +519,7 @@ fn draw_help(f: &mut Frame, theme: &Theme, area: Rect) {
             "General",
             &[
                 ("L",        "Toggle local/remote"),
+                ("W",        "Toggle wander mode (auto-explore)"),
                 ("i",        "Track info popup"),
                 ("?",        "Toggle this help"),
                 ("q",        "Quit"),
@@ -690,6 +700,58 @@ fn draw_track_info(f: &mut Frame, app: &App, area: Rect) {
                     .title(Span::styled(" Track Info  (any key to close) ", Style::default().fg(t.accent))),
             )
             .wrap(ratatui::widgets::Wrap { trim: false }),
+        popup_area,
+    );
+}
+
+fn draw_wander_popup(f: &mut Frame, app: &App, area: Rect) {
+    let t = &app.theme;
+    let mut lines: Vec<Line> = vec![Line::from("")];
+
+    if app.wander_trail.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "  Wander active — queue will auto-extend when the last song plays.",
+            Style::default().fg(t.dim),
+        )));
+    } else {
+        let start = app.wander_trail.len().saturating_sub(5);
+        for entry in &app.wander_trail[start..] {
+            lines.push(Line::from(vec![
+                Span::raw("  "),
+                Span::styled(entry.artist_name.clone(), Style::default().fg(t.accent).add_modifier(Modifier::BOLD)),
+                Span::styled("  —  ", Style::default().fg(t.dim)),
+                Span::styled(entry.album_name.clone(), Style::default().fg(t.text)),
+            ]));
+            let conn = match &entry.connection {
+                WanderConnection::MbRelation { relation_label, from_artist } =>
+                    format!("  ↳ {relation_label} {from_artist}"),
+                WanderConnection::Random { reason } =>
+                    format!("  ↳ random  ({reason})"),
+            };
+            lines.push(Line::from(Span::styled(conn, Style::default().fg(t.dim))));
+        }
+    }
+
+    if app.wander_fetching {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled("  ◌ Fetching next artist…", Style::default().fg(t.dim))));
+    }
+
+    lines.push(Line::from(""));
+
+    let popup_w: u16 = 56;
+    let popup_h = (lines.len() as u16 + 2).min(area.height.saturating_sub(4));
+    let popup_area = center_rect(popup_w, popup_h, area);
+
+    f.render_widget(Clear, popup_area);
+    f.render_widget(
+        Paragraph::new(lines)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(Span::styled(" Wander Trail  (W to close) ", Style::default().fg(t.accent)))
+                    .border_style(Style::default().fg(t.dim)),
+            ),
         popup_area,
     );
 }

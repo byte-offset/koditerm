@@ -9,6 +9,8 @@ use crate::config::KodiSystem;
 pub struct Artist {
     pub artistid: u32,
     pub label: String,
+    #[serde(default)]
+    pub musicbrainzartistid: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -124,11 +126,25 @@ impl KodiClient {
                 "AudioLibrary.GetArtists",
                 json!({
                     "limits": { "start": 0, "end": total },
+                    "properties": ["musicbrainzartistid"],
                     "sort": { "method": "artist" }
                 }),
             )
             .await?;
         Ok(serde_json::from_value(result["artists"].clone()).unwrap_or_default())
+    }
+
+    pub async fn get_albums_for_artist(&self, artist_id: u32) -> Result<Vec<Album>> {
+        let result = self
+            .call(
+                "AudioLibrary.GetAlbums",
+                json!({
+                    "filter": { "artistid": artist_id },
+                    "properties": ["artist", "year"]
+                }),
+            )
+            .await?;
+        Ok(serde_json::from_value(result["albums"].clone()).unwrap_or_default())
     }
 
     pub async fn get_albums(&self) -> Result<Vec<Album>> {

@@ -1,11 +1,12 @@
 mod app;
 mod config;
 mod kodi;
+mod musicbrainz;
 mod player;
 mod ui;
 
 use anyhow::Result;
-use app::{App, InputMode, PlaybackBackend, RepeatMode, SearchScope};
+use app::{App, InputMode, PlaybackBackend, RepeatMode, SearchScope, WanderConnection, WanderEntry};
 use clap::Parser;
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers},
@@ -47,6 +48,14 @@ enum AppEvent {
     RemoteQueueUpdate(Vec<kodi::Song>),
     LocalSongListReady { songs: Vec<kodi::Song>, clear: bool },
     LocalBytesReady { bytes: Vec<u8>, song: kodi::Song, clear: bool },
+    WanderReady {
+        artist_name: String,
+        album_id: u32,
+        album_name: String,
+        songs: Vec<kodi::Song>,
+        connection: app::WanderConnection,
+    },
+    WanderFailed(String),
     Error(String),
 }
 
@@ -71,6 +80,7 @@ async fn main() -> Result<()> {
     let theme = cfg.theme.resolve();
     let (name, system) = config::resolve(&cfg, args.system.as_deref())?;
     let kodi = KodiClient::new(name, system.clone())?;
+    let mb_client = Arc::new(musicbrainz::MbClient::new()?);
 
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -196,56 +206,114 @@ async fn main() -> Result<()> {
                     app.loading = false;
                 }
                 Ok(AppEvent::Tick) => {
-                    if let Some(ref lp) = local_player {
-                        let next = {
-                            let mut app = app.lock().unwrap();
+                    let lp_state = local_player.as_ref().map(|lp| (lp.is_paused(), lp.position(), lp.empty()));
+
+                    let (auto_advance, wander_trigger) = {
+                        let mut app = app.lock().unwrap();
+
+                        if app.wander_cooldown > 0 {
+                            app.wander_cooldown -= 1;
+                        }
+
+                        if let Some((paused, pos, _)) = lp_state {
                             if app.backend == PlaybackBackend::Local {
-                                app.local_paused = lp.is_paused();
-                                app.local_position = lp.position();
-                                if lp.empty() && !app.local_fetching && app.local_current_song.is_some() {
-                                    match app.repeat_mode {
-                                        RepeatMode::Track => {
-                                            let s = app.local_queue[app.local_queue_pos].clone();
+                                app.local_paused = paused;
+                                app.local_position = pos;
+                            }
+                        }
+
+                        let auto_advance = if let Some((_, _, empty)) = lp_state {
+                            if app.backend == PlaybackBackend::Local && empty && !app.local_fetching && app.local_current_song.is_some() {
+                                match app.repeat_mode {
+                                    RepeatMode::Track => {
+                                        let s = app.local_queue[app.local_queue_pos].clone();
+                                        app.local_fetching = true;
+                                        Some(s)
+                                    }
+                                    _ => {
+                                        let next_pos = app.local_queue_pos + 1;
+                                        if next_pos < app.local_queue.len() {
+                                            app.local_queue_pos = next_pos;
+                                            let s = app.local_queue[next_pos].clone();
+                                            app.local_current_song = Some(s.clone());
                                             app.local_fetching = true;
                                             Some(s)
+                                        } else if app.repeat_mode == RepeatMode::Queue && !app.local_queue.is_empty() {
+                                            app.local_queue_pos = 0;
+                                            let s = app.local_queue[0].clone();
+                                            app.local_current_song = Some(s.clone());
+                                            app.local_fetching = true;
+                                            Some(s)
+                                        } else {
+                                            app.local_current_song = None;
+                                            None
                                         }
-                                        _ => {
-                                            let next_pos = app.local_queue_pos + 1;
-                                            if next_pos < app.local_queue.len() {
-                                                app.local_queue_pos = next_pos;
-                                                let s = app.local_queue[next_pos].clone();
-                                                app.local_current_song = Some(s.clone());
-                                                app.local_fetching = true;
-                                                Some(s)
-                                            } else if app.repeat_mode == RepeatMode::Queue && !app.local_queue.is_empty() {
-                                                app.local_queue_pos = 0;
-                                                let s = app.local_queue[0].clone();
-                                                app.local_current_song = Some(s.clone());
-                                                app.local_fetching = true;
-                                                Some(s)
-                                            } else {
-                                                app.local_current_song = None;
-                                                None
-                                            }
-                                        }
+                                    }
+                                }
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        };
+
+                        let wander_trigger: Option<(u32, String, Option<String>, Vec<kodi::Artist>)> =
+                            if app.wander_mode && !app.wander_fetching && app.wander_cooldown == 0 {
+                                let on_last = match app.backend {
+                                    PlaybackBackend::Local => lp_state.map_or(false, |(_, _, empty)| {
+                                        app.local_current_song.is_some()
+                                            && !empty
+                                            && app.local_queue_pos + 1 >= app.local_queue.len()
+                                    }),
+                                    PlaybackBackend::Remote => {
+                                        app.status.player_id.is_some()
+                                            && !app.remote_queue.is_empty()
+                                            && app.status.playlist_pos + 1 >= app.remote_queue.len()
+                                    }
+                                };
+                                if on_last {
+                                    if let Some((artist_id, mbid)) = wander_source_artist(&app) {
+                                        let name = app.all_artists.iter()
+                                            .find(|a| a.artistid == artist_id)
+                                            .map(|a| a.label.clone())
+                                            .unwrap_or_default();
+                                        let all_artists = app.all_artists.clone();
+                                        app.wander_fetching = true;
+                                        Some((artist_id, name, mbid, all_artists))
+                                    } else {
+                                        None
                                     }
                                 } else {
                                     None
                                 }
                             } else {
                                 None
+                            };
+
+                        (auto_advance, wander_trigger)
+                    };
+
+                    if let Some(song) = auto_advance {
+                        let kodi = Arc::clone(&kodi_ref);
+                        let tx = tx.clone();
+                        tokio::spawn(async move {
+                            match fetch_local_bytes(&kodi, song.songid).await {
+                                Ok(bytes) => { let _ = tx.send(AppEvent::LocalBytesReady { bytes, song, clear: true }); }
+                                Err(e) => { let _ = tx.send(AppEvent::Error(format!("Auto-advance: {e}"))); }
                             }
-                        };
-                        if let Some(song) = next {
-                            let kodi = Arc::clone(&kodi_ref);
-                            let tx = tx.clone();
-                            tokio::spawn(async move {
-                                match fetch_local_bytes(&kodi, song.songid).await {
-                                    Ok(bytes) => { let _ = tx.send(AppEvent::LocalBytesReady { bytes, song, clear: true }); }
-                                    Err(e) => { let _ = tx.send(AppEvent::Error(format!("Auto-advance: {e}"))); }
-                                }
-                            });
-                        }
+                        });
+                    }
+
+                    if let Some((artist_id, source_name, mbid, all_artists)) = wander_trigger {
+                        let kodi = Arc::clone(&kodi_ref);
+                        let mb = Arc::clone(&mb_client);
+                        let tx = tx.clone();
+                        tokio::spawn(async move {
+                            match fetch_wander_target(&kodi, &mb, artist_id, &source_name, mbid, &all_artists).await {
+                                Ok(ev) => { let _ = tx.send(ev); }
+                                Err(e) => { let _ = tx.send(AppEvent::WanderFailed(e.to_string())); }
+                            }
+                        });
                     }
                 }
                 Ok(AppEvent::LocalSongListReady { songs, clear }) => {
@@ -319,6 +387,43 @@ async fn main() -> Result<()> {
                             }
                         }
                     }
+                }
+                Ok(AppEvent::WanderReady { artist_name, album_id, album_name, songs, connection }) => {
+                    let (backend, still_active) = {
+                        let mut app = app.lock().unwrap();
+                        app.wander_fetching = false;
+                        let still_active = app.wander_mode;
+                        if still_active {
+                            app.wander_cooldown = 10;
+                            app.wander_trail.push(WanderEntry {
+                                artist_name: artist_name.clone(),
+                                album_name: album_name.clone(),
+                                connection: connection.clone(),
+                            });
+                        }
+                        (app.backend.clone(), still_active)
+                    };
+                    if still_active {
+                        if backend == PlaybackBackend::Local {
+                            if !songs.is_empty() {
+                                let _ = tx.send(AppEvent::LocalSongListReady { songs, clear: false });
+                            }
+                        } else {
+                            let kodi = Arc::clone(&kodi_ref);
+                            let tx2 = tx.clone();
+                            tokio::spawn(async move {
+                                if let Err(e) = kodi.queue_album(album_id).await {
+                                    let _ = tx2.send(AppEvent::Error(format!("Wander queue: {e}")));
+                                }
+                            });
+                        }
+                    }
+                }
+                Ok(AppEvent::WanderFailed(msg)) => {
+                    let mut app = app.lock().unwrap();
+                    app.wander_fetching = false;
+                    app.wander_mode = false;
+                    app.status_message = Some(format!("Wander stopped: {msg}"));
                 }
                 Ok(AppEvent::Key(key)) => {
                     let action = {
@@ -815,6 +920,14 @@ fn handle_key_normal(app: &mut App, key: KeyEvent) -> Option<String> {
             app.show_track_info = true;
             None
         }
+        KeyCode::Char('W') => {
+            app.wander_mode = !app.wander_mode;
+            if !app.wander_mode {
+                app.wander_trail.clear();
+                app.wander_fetching = false;
+            }
+            None
+        }
         _ => None,
     }
 }
@@ -869,6 +982,95 @@ async fn fetch_local_bytes(kodi: &kodi::KodiClient, song_id: u32) -> anyhow::Res
     let file_path = kodi.get_song_file(song_id).await?;
     let bytes = kodi.fetch_vfs_bytes(&file_path).await?;
     Ok(bytes)
+}
+
+fn wander_source_artist(app: &App) -> Option<(u32, Option<String>)> {
+    let artist_name: String = if app.backend == PlaybackBackend::Local {
+        app.local_current_song.as_ref()?.artist.first()?.clone()
+    } else {
+        app.remote_queue.get(app.status.playlist_pos)?.artist.first()?.clone()
+    };
+    let artist = app.all_artists.iter().find(|a| a.label == artist_name)?;
+    let mbid = artist.musicbrainzartistid.first().cloned();
+    Some((artist.artistid, mbid))
+}
+
+fn pseudo_random_idx(len: usize) -> usize {
+    use std::time::SystemTime;
+    let nanos = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default()
+        .subsec_nanos();
+    nanos as usize % len
+}
+
+async fn fetch_wander_target(
+    kodi: &kodi::KodiClient,
+    mb: &musicbrainz::MbClient,
+    source_artist_id: u32,
+    source_artist_name: &str,
+    source_mbid: Option<String>,
+    all_artists: &[kodi::Artist],
+) -> anyhow::Result<AppEvent> {
+    if let Some(ref mbid) = source_mbid {
+        if let Ok(relations) = mb.get_artist_relations(mbid).await {
+            let len = relations.len();
+            if len > 0 {
+                let start = pseudo_random_idx(len);
+                for i in 0..len {
+                    let rel = &relations[(start + i) % len];
+                    if let Some(artist) = all_artists.iter().find(|a| a.label == rel.name) {
+                        if artist.artistid == source_artist_id {
+                            continue;
+                        }
+                        if let Ok(albums) = kodi.get_albums_for_artist(artist.artistid).await {
+                            if !albums.is_empty() {
+                                let album = &albums[pseudo_random_idx(albums.len())];
+                                let songs = kodi.get_songs_for_album(album.albumid).await.unwrap_or_default();
+                                if !songs.is_empty() {
+                                    return Ok(AppEvent::WanderReady {
+                                        artist_name: artist.label.clone(),
+                                        album_id: album.albumid,
+                                        album_name: album.label.clone(),
+                                        songs,
+                                        connection: WanderConnection::MbRelation {
+                                            relation_label: rel.relation_label.clone(),
+                                            from_artist: source_artist_name.to_string(),
+                                        },
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // Fallback: random artist from library
+    let candidates: Vec<_> = all_artists.iter().filter(|a| a.artistid != source_artist_id).collect();
+    if candidates.is_empty() {
+        return Err(anyhow::anyhow!("No other artists in library to wander to"));
+    }
+    let artist = candidates[pseudo_random_idx(candidates.len())];
+    let albums = kodi.get_albums_for_artist(artist.artistid).await?;
+    if albums.is_empty() {
+        return Err(anyhow::anyhow!("Random artist has no albums"));
+    }
+    let album = &albums[pseudo_random_idx(albums.len())];
+    let songs = kodi.get_songs_for_album(album.albumid).await?;
+    Ok(AppEvent::WanderReady {
+        artist_name: artist.label.clone(),
+        album_id: album.albumid,
+        album_name: album.label.clone(),
+        songs,
+        connection: WanderConnection::Random {
+            reason: if source_mbid.is_none() {
+                format!("no MusicBrainz ID for {source_artist_name}")
+            } else {
+                format!("no library matches from MB relations of {source_artist_name}")
+            },
+        },
+    })
 }
 
 async fn dispatch_action(

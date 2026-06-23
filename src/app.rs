@@ -9,6 +9,19 @@ pub enum PlaybackBackend {
     Local,
 }
 
+#[derive(Debug, Clone)]
+pub enum WanderConnection {
+    MbRelation { relation_label: String, from_artist: String },
+    Random { reason: String },
+}
+
+#[derive(Debug, Clone)]
+pub struct WanderEntry {
+    pub artist_name: String,
+    pub album_name: String,
+    pub connection: WanderConnection,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RepeatMode {
     Off,
@@ -119,6 +132,10 @@ pub struct App {
     pub repeat_mode: RepeatMode,
     pub show_track_info: bool,
     pub theme: Theme,
+    pub wander_mode: bool,
+    pub wander_fetching: bool,
+    pub wander_cooldown: u8,
+    pub wander_trail: Vec<WanderEntry>,
 }
 
 impl App {
@@ -158,6 +175,10 @@ impl App {
             repeat_mode: RepeatMode::Off,
             show_track_info: false,
             theme,
+            wander_mode: false,
+            wander_fetching: false,
+            wander_cooldown: 0,
+            wander_trail: Vec::new(),
         }
     }
 
