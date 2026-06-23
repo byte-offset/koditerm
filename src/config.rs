@@ -45,16 +45,17 @@ pub struct Theme {
 
 impl Default for Theme {
     fn default() -> Self {
+        // Tokyo Night Storm
         Theme {
-            dim: Color::Gray,
-            accent: Color::Cyan,
-            highlight: Color::Yellow,
-            text: Color::White,
-            selected_fg: Color::Black,
-            selected_bg: Color::White,
-            tag_artist: Color::Magenta,
-            tag_album: Color::Blue,
-            tag_song: Color::Green,
+            dim:         Color::Rgb(0x56, 0x5f, 0x89),
+            accent:      Color::Rgb(0x7a, 0xa2, 0xf7),
+            highlight:   Color::Rgb(0xe0, 0xaf, 0x68),
+            text:        Color::Rgb(0xc0, 0xca, 0xf5),
+            selected_fg: Color::Rgb(0x1d, 0x20, 0x2f),
+            selected_bg: Color::Rgb(0x7a, 0xa2, 0xf7),
+            tag_artist:  Color::Rgb(0xbb, 0x9a, 0xf7),
+            tag_album:   Color::Rgb(0x7a, 0xa2, 0xf7),
+            tag_song:    Color::Rgb(0x9e, 0xce, 0x6a),
         }
     }
 }
@@ -84,16 +85,17 @@ pub struct ThemeConfig {
 
 impl ThemeConfig {
     pub fn resolve(&self) -> Theme {
+        let d = Theme::default();
         Theme {
-            dim: self.dim.as_deref().map(parse_color).unwrap_or(Color::Gray),
-            accent: self.accent.as_deref().map(parse_color).unwrap_or(Color::Cyan),
-            highlight: self.highlight.as_deref().map(parse_color).unwrap_or(Color::Yellow),
-            text: self.text.as_deref().map(parse_color).unwrap_or(Color::White),
-            selected_fg: self.selected_fg.as_deref().map(parse_color).unwrap_or(Color::Black),
-            selected_bg: self.selected_bg.as_deref().map(parse_color).unwrap_or(Color::White),
-            tag_artist: self.tag_artist.as_deref().map(parse_color).unwrap_or(Color::Magenta),
-            tag_album: self.tag_album.as_deref().map(parse_color).unwrap_or(Color::Blue),
-            tag_song: self.tag_song.as_deref().map(parse_color).unwrap_or(Color::Green),
+            dim:         self.dim.as_deref().map(parse_color).unwrap_or(d.dim),
+            accent:      self.accent.as_deref().map(parse_color).unwrap_or(d.accent),
+            highlight:   self.highlight.as_deref().map(parse_color).unwrap_or(d.highlight),
+            text:        self.text.as_deref().map(parse_color).unwrap_or(d.text),
+            selected_fg: self.selected_fg.as_deref().map(parse_color).unwrap_or(d.selected_fg),
+            selected_bg: self.selected_bg.as_deref().map(parse_color).unwrap_or(d.selected_bg),
+            tag_artist:  self.tag_artist.as_deref().map(parse_color).unwrap_or(d.tag_artist),
+            tag_album:   self.tag_album.as_deref().map(parse_color).unwrap_or(d.tag_album),
+            tag_song:    self.tag_song.as_deref().map(parse_color).unwrap_or(d.tag_song),
         }
     }
 }
