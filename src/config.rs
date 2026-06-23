@@ -35,12 +35,18 @@ pub struct Theme {
     pub selected_fg: Color,
     /// Background of the selected row.
     pub selected_bg: Color,
-    /// Background of the ART type badge.
-    pub tag_artist: Color,
-    /// Background of the ALB type badge.
-    pub tag_album: Color,
-    /// Background of the SNG type badge.
-    pub tag_song: Color,
+    /// Background of the ART type badge, or None for no styling.
+    pub tag_artist: Option<Color>,
+    /// Background of the ALB type badge, or None for no styling.
+    pub tag_album: Option<Color>,
+    /// Background of the SNG type badge, or None for no styling.
+    pub tag_song: Option<Color>,
+    /// Label text inside the artist badge.
+    pub tag_artist_label: String,
+    /// Label text inside the album badge.
+    pub tag_album_label: String,
+    /// Label text inside the song badge.
+    pub tag_song_label: String,
 }
 
 impl Default for Theme {
@@ -53,9 +59,12 @@ impl Default for Theme {
             text:        Color::Rgb(0xc0, 0xca, 0xf5),
             selected_fg: Color::Rgb(0x1d, 0x20, 0x2f),
             selected_bg: Color::Rgb(0x7a, 0xa2, 0xf7),
-            tag_artist:  Color::Rgb(0xbb, 0x9a, 0xf7),
-            tag_album:   Color::Rgb(0x7a, 0xa2, 0xf7),
-            tag_song:    Color::Rgb(0x9e, 0xce, 0x6a),
+            tag_artist:  None,
+            tag_album:   None,
+            tag_song:    None,
+            tag_artist_label: "🎤".to_string(),
+            tag_album_label:  "💿".to_string(),
+            tag_song_label:   "🎵".to_string(),
         }
     }
 }
@@ -81,6 +90,12 @@ pub struct ThemeConfig {
     pub tag_album: Option<String>,
     /// Background color of the SNG type badge (default: "green").
     pub tag_song: Option<String>,
+    /// Label text for the artist badge (default: "ART"). Unicode ok, e.g. "♪".
+    pub tag_artist_label: Option<String>,
+    /// Label text for the album badge (default: "ALB").
+    pub tag_album_label: Option<String>,
+    /// Label text for the song badge (default: "SNG").
+    pub tag_song_label: Option<String>,
 }
 
 impl ThemeConfig {
@@ -93,10 +108,20 @@ impl ThemeConfig {
             text:        self.text.as_deref().map(parse_color).unwrap_or(d.text),
             selected_fg: self.selected_fg.as_deref().map(parse_color).unwrap_or(d.selected_fg),
             selected_bg: self.selected_bg.as_deref().map(parse_color).unwrap_or(d.selected_bg),
-            tag_artist:  self.tag_artist.as_deref().map(parse_color).unwrap_or(d.tag_artist),
-            tag_album:   self.tag_album.as_deref().map(parse_color).unwrap_or(d.tag_album),
-            tag_song:    self.tag_song.as_deref().map(parse_color).unwrap_or(d.tag_song),
+            tag_artist:  self.tag_artist.as_deref().map(parse_color_opt).unwrap_or(d.tag_artist),
+            tag_album:   self.tag_album.as_deref().map(parse_color_opt).unwrap_or(d.tag_album),
+            tag_song:    self.tag_song.as_deref().map(parse_color_opt).unwrap_or(d.tag_song),
+            tag_artist_label: self.tag_artist_label.clone().unwrap_or(d.tag_artist_label),
+            tag_album_label:  self.tag_album_label.clone().unwrap_or(d.tag_album_label),
+            tag_song_label:   self.tag_song_label.clone().unwrap_or(d.tag_song_label),
         }
+    }
+}
+
+fn parse_color_opt(s: &str) -> Option<Color> {
+    match s.to_lowercase().trim() {
+        "none" | "transparent" => None,
+        _ => Some(parse_color(s)),
     }
 }
 
@@ -223,15 +248,18 @@ fn default_config() -> FullConfig {
     );
     // Default theme: Tokyo Night Storm
     let theme = ThemeConfig {
-        dim:        Some("#565f89".to_string()), // muted blue-grey
-        accent:     Some("#7aa2f7".to_string()), // blue
-        highlight:  Some("#e0af68".to_string()), // gold
-        text:       Some("#c0caf5".to_string()), // foreground
-        selected_fg: Some("#1d202f".to_string()), // dark background
-        selected_bg: Some("#7aa2f7".to_string()), // blue
-        tag_artist: Some("#bb9af7".to_string()), // purple
-        tag_album:  Some("#7aa2f7".to_string()), // blue
-        tag_song:   Some("#9ece6a".to_string()), // green
+        dim:             Some("#565f89".to_string()),
+        accent:          Some("#7aa2f7".to_string()),
+        highlight:       Some("#e0af68".to_string()),
+        text:            Some("#c0caf5".to_string()),
+        selected_fg:     Some("#1d202f".to_string()),
+        selected_bg:     Some("#7aa2f7".to_string()),
+        tag_artist:      Some("none".to_string()),
+        tag_album:       Some("none".to_string()),
+        tag_song:        Some("none".to_string()),
+        tag_artist_label: Some("🎤".to_string()),
+        tag_album_label:  Some("💿".to_string()),
+        tag_song_label:   Some("🎵".to_string()),
     };
     FullConfig { theme, systems }
 }

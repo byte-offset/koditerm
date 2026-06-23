@@ -255,19 +255,15 @@ fn draw_library(f: &mut Frame, app: &mut App, area: Rect) {
             };
             let num_span = Span::styled(format!("{:>3} ", dist), num_style);
 
+            let tag_style = |bg: Option<Color>| match bg {
+                Some(bg) => Style::default().fg(Color::Black).bg(bg),
+                None if selected => Style::default().fg(t.selected_fg).bg(t.selected_bg),
+                None => Style::default(),
+            };
             let type_tag = match item {
-                LibraryItem::Artist(_) => Span::styled(
-                    " ART ",
-                    Style::default().fg(Color::Black).bg(t.tag_artist),
-                ),
-                LibraryItem::Album(_) => Span::styled(
-                    " ALB ",
-                    Style::default().fg(Color::Black).bg(t.tag_album),
-                ),
-                LibraryItem::Song(_) => Span::styled(
-                    " SNG ",
-                    Style::default().fg(Color::Black).bg(t.tag_song),
-                ),
+                LibraryItem::Artist(_) => Span::styled(t.tag_artist_label.clone(), tag_style(t.tag_artist)),
+                LibraryItem::Album(_)  => Span::styled(t.tag_album_label.clone(),  tag_style(t.tag_album)),
+                LibraryItem::Song(_)   => Span::styled(t.tag_song_label.clone(),   tag_style(t.tag_song)),
             };
 
             let label = Span::styled(
