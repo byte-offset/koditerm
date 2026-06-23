@@ -192,13 +192,13 @@ fn draw_main(f: &mut Frame, app: &mut App, area: Rect) {
 }
 
 fn draw_library(f: &mut Frame, app: &mut App, area: Rect) {
-    let scope_labels = [
-        (SearchScope::All, "All [F1]"),
-        (SearchScope::Artists, "Artists [F2]"),
-        (SearchScope::Albums, "Albums [F3]"),
-        (SearchScope::Songs, "Songs [F4]"),
-    ];
     let t = &app.theme;
+    let scope_labels: [(SearchScope, String); 4] = [
+        (SearchScope::All,     format!("All [F1]")),
+        (SearchScope::Artists, format!("{} Artists [F2]", t.tag_artist_label)),
+        (SearchScope::Albums,  format!("{} Albums [F3]",  t.tag_album_label)),
+        (SearchScope::Songs,   format!("{} Songs [F4]",   t.tag_song_label)),
+    ];
     let title_spans: Vec<Span> = scope_labels
         .iter()
         .flat_map(|(scope, label)| {

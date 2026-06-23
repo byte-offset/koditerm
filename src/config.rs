@@ -62,9 +62,9 @@ impl Default for Theme {
             tag_artist:  None,
             tag_album:   None,
             tag_song:    None,
-            tag_artist_label: "🎤".to_string(),
+            tag_artist_label: "👤".to_string(),
             tag_album_label:  "💿".to_string(),
-            tag_song_label:   "🎵".to_string(),
+            tag_song_label:   "♫".to_string(),
         }
     }
 }
@@ -257,9 +257,9 @@ fn default_config() -> FullConfig {
         tag_artist:      Some("none".to_string()),
         tag_album:       Some("none".to_string()),
         tag_song:        Some("none".to_string()),
-        tag_artist_label: Some("🎤".to_string()),
+        tag_artist_label: Some("👤".to_string()),
         tag_album_label:  Some("💿".to_string()),
-        tag_song_label:   Some("🎵".to_string()),
+        tag_song_label:   Some("♫".to_string()),
     };
     FullConfig { theme, systems }
 }
