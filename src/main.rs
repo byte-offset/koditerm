@@ -561,7 +561,7 @@ fn handle_key_search(app: &mut App, key: KeyEvent) -> Option<String> {
             app.input_mode = InputMode::Normal;
             play_selected(app)
         }
-        KeyCode::F(5) => {
+        KeyCode::Enter if key.modifiers.contains(KeyModifiers::ALT) => {
             // Queue without leaving search
             queue_selected(app)
         }
@@ -709,7 +709,7 @@ fn handle_key_normal(app: &mut App, key: KeyEvent) -> Option<String> {
         }
         KeyCode::Char('L') => Some("toggle_backend".to_string()),
         KeyCode::Enter => play_selected(app),
-        KeyCode::Char('a') => queue_selected(app),
+        KeyCode::Enter if key.modifiers.contains(KeyModifiers::ALT) => queue_selected(app),
         KeyCode::Char(' ') => {
             if app.backend == PlaybackBackend::Local {
                 if app.local_current_song.is_some() {

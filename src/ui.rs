@@ -113,7 +113,7 @@ fn draw_now_playing(f: &mut Frame, app: &App, area: Rect) {
             );
         } else {
             f.render_widget(
-                Paragraph::new("Local mode. Press Enter to play, 'a' to queue.")
+                Paragraph::new("Local mode. ENTER to play, Alt+ENTER to queue.")
                     .style(Style::default().fg(Color::DarkGray)),
                 inner,
             );
@@ -401,7 +401,7 @@ fn draw_search_bar(f: &mut Frame, app: &App, area: Rect) {
             (
                 format!(" Search ({scope}, {mode}) "),
                 format!("{}_", app.search_query),
-                " ESC: cancel  ENTER: play  F5: queue  TAB: fuzzy/exact  F1-F4: scope ".to_string(),
+                " ESC: cancel  ENTER: play  Alt+ENTER: queue  TAB: fuzzy/exact  F1-F4: scope ".to_string(),
             )
         }
         InputMode::Normal => {
@@ -417,7 +417,7 @@ fn draw_search_bar(f: &mut Frame, app: &App, area: Rect) {
             (
                 " koditerm ".to_string(),
                 msg,
-                " /: search  j/k: nav  gg/G: top/bot  ENTER: play  SPACE: pause  n/p: skip  r: repeat  i: info  +/-: vol  q: quit ".to_string(),
+                " /: search  j/k: nav  gg/G: top/bot  ENTER: play  Alt+ENTER: queue  SPACE: pause  n/p: skip  r: repeat  i: info  +/-: vol  q: quit ".to_string(),
             )
         }
         InputMode::Command => (
@@ -492,9 +492,8 @@ fn draw_help(f: &mut Frame, area: Rect) {
         (
             "Playback",
             &[
-                ("Enter",    "Play (clears queue)"),
-                ("a",        "Add to queue"),
-                ("F5",       "Queue (from search)"),
+                ("ENTER",      "Play (clears queue)"),
+                ("Alt+ENTER",  "Add to queue"),
                 ("Space",    "Pause / resume"),
                 ("s",        "Stop"),
                 ("n",        "Next track"),
