@@ -14,5 +14,6 @@ toml = "0.8"
 dirs = "5"
 anyhow = "1"
 unicode-width = "0.2"
+unicode-normalization = "0.1"
 clap = { version = "4", features = ["derive"] }
 rodio = "0.22"

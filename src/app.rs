@@ -1,6 +1,7 @@
 use crate::config::Theme;
 use crate::kodi::{Album, Artist, KodiClient, PlayerStatus, Song};
 use std::sync::Arc;
+use unicode_normalization::UnicodeNormalization;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PlaybackBackend {
@@ -384,8 +385,17 @@ impl App {
     }
 }
 
+/// NFD-normalize and strip combining diacritical marks, then lowercase.
+/// "Sinéad" → "sinead", "Ångström" → "angstrom".
+fn fold(s: &str) -> String {
+    s.nfd()
+        .filter(|c| !matches!(c, '\u{0300}'..='\u{036f}' | '\u{1dc0}'..='\u{1dff}'))
+        .collect::<String>()
+        .to_lowercase()
+}
+
 fn exact_match(haystack: &str, needle: &str) -> bool {
-    haystack.to_lowercase().contains(&needle.to_lowercase())
+    fold(haystack).contains(&fold(needle))
 }
 
 // Returns a score (lower = better) if all characters of needle appear as a
@@ -394,8 +404,8 @@ fn fuzzy_score(haystack: &str, needle: &str) -> Option<i64> {
     if needle.is_empty() {
         return Some(0);
     }
-    let h = haystack.to_lowercase();
-    let n = needle.to_lowercase();
+    let h = fold(haystack);
+    let n = fold(needle);
     let mut hi = h.chars().peekable();
     let mut score: i64 = 0;
     let mut last_match = 0usize;
