@@ -1,3 +1,5 @@
+Copyright (c) 2026 Bud Millwood
+
 This is koditerm, a terminal user interface for playing music from a Kodi server. It can control the remote 
 Kodi system or it can stream the music locally. The project is written in Rust.
 
