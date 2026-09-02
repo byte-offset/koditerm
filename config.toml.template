@@ -1,0 +1,28 @@
+[theme]
+# Tokyo Night Storm
+dim        = "#565f89"   # subdued text: line numbers, subtitles, hint bar
+accent     = "#7aa2f7"   # titles, active scope tab, current queue item
+highlight  = "#e0af68"   # artist names in Now Playing, queue count
+text       = "#c0caf5"   # unselected item labels
+selected_fg = "#1d202f"  # text on selected row
+selected_bg = "#7aa2f7"  # selected row background
+tag_artist = "#bb9af7"   # ART badge background
+tag_album  = "#7aa2f7"   # ALB badge background
+tag_song   = "#9ece6a"   # SNG badge background
+tag_artist_label = "  " # default is "🎤", nerdfont "  " is better
+tag_album_label  = " 󰀥 " # default is "💿", nerdfont " 󰀥 " is better
+tag_song_label   = "  " # default is "🎵", nerdfont "  " is better
+
+[kodi-box-1]
+host = "192.168.1.5"
+port = 80
+username = "kodi"
+password = "kodi"
+default = true
+
+[kodi-box-2]
+host = "192.168.1.6"
+port = 80
+username = "kodi"
+password = "kodi"
+
