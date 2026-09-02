@@ -511,6 +511,7 @@ fn draw_help(f: &mut Frame, theme: &Theme, area: Rect) {
                 ("s",        "Stop"),
                 ("n",        "Next track"),
                 ("p",        "Previous track"),
+                ("0-9 n/p",  "Skip N tracks"),
                 ("r",        "Cycle repeat: off / ↻1 track / ↻ queue"),
                 ("+  /  =",  "Volume up 5%"),
                 ("-",        "Volume down 5%"),
