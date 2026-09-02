@@ -266,6 +266,12 @@ impl KodiClient {
         Ok(())
     }
 
+    pub async fn play_queue(&self) -> Result<()> {
+        self.call("Player.Open", json!({ "item": { "playlistid": 0 } }))
+            .await?;
+        Ok(())
+    }
+
     pub async fn toggle_pause(&self, player_id: i64) -> Result<()> {
         self.call("Player.PlayPause", json!({ "playerid": player_id }))
             .await?;

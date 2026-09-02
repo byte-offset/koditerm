@@ -835,6 +835,8 @@ fn handle_key_normal(app: &mut App, key: KeyEvent) -> Option<String> {
                 }
             } else if let Some(pid) = app.status.player_id {
                 Some(format!("toggle_pause:{pid}"))
+            } else if !app.remote_queue.is_empty() {
+                Some("play_queue".to_string())
             } else {
                 play_selected(app)
             }
@@ -1096,6 +1098,7 @@ async fn dispatch_action(
         "queue_song" => kodi.queue_song(parts[1].parse()?).await?,
         "queue_album" => kodi.queue_album(parts[1].parse()?).await?,
         "queue_artist" => kodi.queue_artist(parts[1].parse()?).await?,
+        "play_queue" => kodi.play_queue().await?,
         "toggle_pause" => kodi.toggle_pause(parts[1].parse()?).await?,
         "stop" => kodi.stop(parts[1].parse()?).await?,
         "next" => kodi.next_track(parts[1].parse()?).await?,
