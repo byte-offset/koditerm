@@ -507,8 +507,7 @@ fn draw_help(f: &mut Frame, theme: &Theme, area: Rect) {
             &[
                 ("ENTER",      "Play (clears queue)"),
                 ("Alt+ENTER",  "Add to queue"),
-                ("Space",    "Pause / resume"),
-                ("Space*",   "If stopped: replay"),
+                ("Space",    "Pause / resume / restart"),
                 ("s",        "Stop"),
                 ("n",        "Next track"),
                 ("p",        "Previous track"),
