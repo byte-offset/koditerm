@@ -9,6 +9,7 @@ use ratatui::{
 use crate::app::{App, InputMode, LibraryItem, PlaybackBackend, RepeatMode, SearchMode, SearchScope, WanderConnection};
 use crate::config::Theme;
 use crate::kodi::format_duration;
+use unicode_width::UnicodeWidthStr;
 
 pub fn draw(f: &mut Frame, app: &mut App) {
     let area = f.area();
@@ -553,10 +554,18 @@ fn draw_help(f: &mut Frame, theme: &Theme, area: Rect) {
     let left_lines  = build_lines(LEFT);
     let right_lines = build_lines(RIGHT);
 
-    // col_width = 2 indent + 10 key + 1 space + 19 desc + 1 padding = 33
-    let col_w: u16 = 33;
-    let min_popup_w = col_w * 2 + 3; // 3 = left border + divider + right border
-    let popup_w = (area.width * 2 / 5).max(min_popup_w).min(area.width);
+    let line_width = |line: &Line| -> u16 {
+        line.spans.iter().map(|s| s.content.width()).sum::<usize>() as u16
+    };
+    let col_width = |lines: &[Line]| -> u16 {
+        lines.iter().map(line_width).max().unwrap_or(0)
+    };
+    let left_w = col_width(&left_lines);
+    let right_w = col_width(&right_lines);
+
+    let content_w = left_w + 1 + right_w; // 1 = divider
+    let max_popup_w = area.width * 4 / 5;
+    let popup_w = (content_w + 2).min(max_popup_w); // 2 = left+right border
     let popup_h = left_lines.len().max(right_lines.len()) as u16 + 2;
 
     let popup_area = center_rect(popup_w, popup_h, area);
@@ -577,7 +586,7 @@ fn draw_help(f: &mut Frame, theme: &Theme, area: Rect) {
 
     let cols = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Length(col_w), Constraint::Length(1), Constraint::Min(0)])
+        .constraints([Constraint::Length(left_w), Constraint::Length(1), Constraint::Min(0)])
         .split(inner);
 
     f.render_widget(Paragraph::new(left_lines), cols[0]);
