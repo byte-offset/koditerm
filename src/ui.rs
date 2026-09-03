@@ -555,7 +555,8 @@ fn draw_help(f: &mut Frame, theme: &Theme, area: Rect) {
 
     // col_width = 2 indent + 10 key + 1 space + 19 desc + 1 padding = 33
     let col_w: u16 = 33;
-    let popup_w = col_w * 2 + 3; // 3 = left border + divider + right border
+    let min_popup_w = col_w * 2 + 3; // 3 = left border + divider + right border
+    let popup_w = (area.width * 2 / 5).max(min_popup_w).min(area.width);
     let popup_h = left_lines.len().max(right_lines.len()) as u16 + 2;
 
     let popup_area = center_rect(popup_w, popup_h, area);
