@@ -382,8 +382,10 @@ fn draw_queue(f: &mut Frame, app: &App, area: Rect) {
             } else {
                 ("  ", Style::default().fg(Color::White))
             };
-            let label = if song.label.len() > max_label {
-                format!("{}…", &song.label[..max_label.saturating_sub(1)])
+            let label = if song.label.chars().count() > max_label {
+                let take = max_label.saturating_sub(1);
+                let cut = song.label.char_indices().nth(take).map_or(song.label.len(), |(i, _)| i);
+                format!("{}…", &song.label[..cut])
             } else {
                 song.label.clone()
             };
